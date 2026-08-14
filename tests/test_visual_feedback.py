@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from PIL import Image, ImageDraw
 
 from rodforge.critic import Critic
@@ -91,8 +92,8 @@ def test_critic_turns_visual_delta_into_normalized_improvement_signal():
     second = critic.review(_task(), _result("second.png"))
     third = critic.review(_task(), _result("third.png"))
 
-    assert first.metrics["reference_match"] == 0.40
-    assert first.metrics["improvement_score"] == 0.70
-    assert second.metrics["improvement_score"] == 0.65
-    assert third.metrics["improvement_score"] == 0.425
+    assert first.metrics["reference_match"] == pytest.approx(0.40)
+    assert first.metrics["improvement_score"] == pytest.approx(0.70)
+    assert second.metrics["improvement_score"] == pytest.approx(0.65)
+    assert third.metrics["improvement_score"] == pytest.approx(0.425)
     assert third.metrics["improvement_score"] < 0.5
