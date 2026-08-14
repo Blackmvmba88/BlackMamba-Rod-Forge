@@ -1,0 +1,15 @@
+name: hotrod_school
+output_root: data/outputs/curriculum
+memory_file: data/outputs/cognition/experience.json
+report_window: 10
+continue_on_error: true
+
+runs:
+  - id: hotrod_001
+    reference_image: data/references/hotrod_001.png
+
+  - id: hotrod_002
+    reference_image: data/references/hotrod_002.png
+
+  - id: hotrod_003
+    reference_image: data/references/hotrod_003.png
