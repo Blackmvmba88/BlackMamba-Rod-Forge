@@ -1,3 +1,5 @@
+import pytest
+
 from rodforge.blender_executor import DryRunExecutor, ExecutionResult
 from rodforge.checkpointing import CheckpointManager
 from rodforge.cognition import CognitiveEngine, ExperienceMemory
@@ -70,9 +72,9 @@ def test_probe_learning_records_prediction_error_without_changing_task(tmp_path)
     assert episode is not None
     assert episode.strategy == "wheel_cylinder"
     assert episode.source == "counterfactual_probe"
-    assert episode.predicted_score == 0.5
-    assert episode.observed_score == 0.8
-    assert episode.prediction_error == 0.3
+    assert episode.predicted_score == pytest.approx(0.5)
+    assert episode.observed_score == pytest.approx(0.8)
+    assert episode.prediction_error == pytest.approx(0.3)
     assert task.strategy == "wheel_torus"
 
 
@@ -100,7 +102,7 @@ class _ProbeCritic(Critic):
         self._previous_reference_match = 0.40
 
     @property
-    def visual_feedback_available(self) -> bool:
+    def counterfactual_feedback_available(self) -> bool:
         return True
 
     def observe_preview(self, preview_path, *, baseline_reference_match=None):
@@ -139,7 +141,7 @@ def test_orchestrator_probes_then_executes_planned_strategy_in_shadow_mode(tmp_p
     assert summary.global_failures == 0
     assert executor.probed == ["wheel_cylinder"]
     assert task.strategy == "wheel_torus"
-    assert critic.previous_reference_match == 0.40
+    assert critic.previous_reference_match == pytest.approx(0.40)
     assert [episode.source for episode in memory.episodes] == [
         "counterfactual_probe",
         "execution",
