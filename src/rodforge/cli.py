@@ -70,7 +70,11 @@ def _critic(config: ProjectConfig) -> Critic:
     )
 
 
-def _cognitive_engine(config: ProjectConfig) -> CognitiveEngine | None:
+def _cognitive_engine(
+    config: ProjectConfig,
+    *,
+    reference_sha256: str | None = None,
+) -> CognitiveEngine | None:
     cognition = config.cognition
     if cognition is None or not cognition.enabled:
         return None
@@ -83,6 +87,7 @@ def _cognitive_engine(config: ProjectConfig) -> CognitiveEngine | None:
         counterfactual_probes=cognition.counterfactual_probes,
         max_probes_per_task=cognition.max_probes_per_task,
         probe_sample_target=cognition.probe_sample_target,
+        reference_sha256=reference_sha256,
     )
 
 
@@ -109,6 +114,13 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ready"] else 2
 
+    reference_report = inspect_reference(config.reference_image)
+    reference_sha256 = (
+        str(reference_report["sha256"])
+        if reference_report.get("ready") and reference_report.get("sha256")
+        else None
+    )
+
     state_manager = StateManager(config.state_file)
     checkpoint_manager = CheckpointManager(config.checkpoint_dir)
 
@@ -118,12 +130,18 @@ def main(argv: list[str] | None = None) -> int:
         state = build_hotrod_plan(config.project_name)
         state.metadata["reference_image"] = config.reference_image
 
+    if reference_sha256 is not None:
+        state.metadata["reference_sha256"] = reference_sha256
+
     orchestrator = Orchestrator(
         state_manager=state_manager,
         checkpoint_manager=checkpoint_manager,
         executor=_executor(args.executor, config),
         critic=_critic(config),
-        cognitive_engine=_cognitive_engine(config),
+        cognitive_engine=_cognitive_engine(
+            config,
+            reference_sha256=reference_sha256,
+        ),
         checkpoint_every=config.checkpoint_every_completed_tasks,
         max_global_failures=config.max_global_failures_before_pause,
     )
