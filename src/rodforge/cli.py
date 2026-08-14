@@ -7,6 +7,7 @@ from dataclasses import asdict
 from .blender_executor import BlenderExecutor, DryRunExecutor
 from .checkpointing import CheckpointManager
 from .cognition import CognitiveEngine, ExperienceMemory
+from .cognitive_report import build_cognitive_report
 from .config import ProjectConfig, load_config
 from .critic import Critic
 from .orchestrator import Orchestrator
@@ -26,6 +27,13 @@ def build_parser() -> argparse.ArgumentParser:
     resume = sub.add_parser("resume", help="Resume persisted state")
     resume.add_argument("--config", default="configs/project.yaml")
     resume.add_argument("--executor", choices=["dry-run", "blender"], default="dry-run")
+
+    report = sub.add_parser(
+        "cognition-report",
+        help="Measure how accurately cognitive predictions match observed outcomes",
+    )
+    report.add_argument("--config", default="configs/project.yaml")
+    report.add_argument("--window", type=int, default=10)
 
     return parser
 
@@ -74,6 +82,21 @@ def _cognitive_engine(config: ProjectConfig) -> CognitiveEngine | None:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     config = load_config(args.config)
+
+    if args.command == "cognition-report":
+        cognition = config.cognition
+        memory_file = (
+            cognition.memory_file
+            if cognition is not None
+            else "data/outputs/cognition/experience.json"
+        )
+        report = build_cognitive_report(
+            ExperienceMemory(memory_file),
+            window=max(1, int(args.window)),
+        )
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0
+
     state_manager = StateManager(config.state_file)
     checkpoint_manager = CheckpointManager(config.checkpoint_dir)
 
