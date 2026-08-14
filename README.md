@@ -179,6 +179,8 @@ memoria episódica
 
 El sistema inicia en `shadow` mode: aprende y genera expectativas, pero no cambia una estrategia solo porque "cree" que otra será mejor. La activación futura exige suficientes muestras, confianza y margen de mejora.
 
+El siguiente salto no será inventar etiquetas de estrategia. Será implementar **alternativas geométricas realmente distintas** para un mismo objetivo y dejar que la experiencia estime cuál tiene mayor probabilidad de mejorar el resultado antes de ejecutarla.
+
 Detalles técnicos:
 
 - `docs/COGNITION.md`
