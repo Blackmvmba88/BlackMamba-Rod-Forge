@@ -6,6 +6,14 @@ outputs:
   state: data/outputs/state/project_state.json
   checkpoints: data/outputs/checkpoints
 
+cognition:
+  enabled: true
+  mode: shadow
+  memory_file: data/outputs/cognition/experience.json
+  min_samples: 3
+  activation_confidence: 0.70
+  activation_margin: 0.05
+
 checkpoint_every_completed_tasks: 2
 max_global_failures_before_pause: 20
 continue_until_blocked: true
