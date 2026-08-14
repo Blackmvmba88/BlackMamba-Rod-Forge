@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+
+# Environment
+.env
+.DS_Store
+
+# Blender
+*.blend1
+*.blend2
+
+# Runtime outputs
+data/outputs/blend/*.blend
+data/outputs/previews/*
+data/outputs/checkpoints/*.json
+data/outputs/state/*.json
+data/logs/*.log
+
+# Keep runtime directories
+!data/outputs/blend/.gitkeep
+!data/outputs/previews/.gitkeep
+!data/outputs/checkpoints/.gitkeep
+!data/outputs/state/.gitkeep
+!data/logs/.gitkeep
