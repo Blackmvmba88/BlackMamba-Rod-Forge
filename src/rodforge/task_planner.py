@@ -25,6 +25,10 @@ def _task(task_id: str, name: str, objective: str, deps: list[str] | None = None
         fallback_strategies=list(DEFAULT_FALLBACKS),
         criticality=criticality,
         max_attempts=max_attempts,
+        metadata={
+            "cognitive_signature": task_id,
+            "cognitive_metric": "improvement_score",
+        },
     )
 
 

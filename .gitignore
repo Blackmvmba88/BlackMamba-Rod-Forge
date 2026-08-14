@@ -20,6 +20,7 @@ data/outputs/blend/*.blend
 data/outputs/previews/*
 data/outputs/checkpoints/*.json
 data/outputs/state/*.json
+data/outputs/cognition/*.json
 data/logs/*.log
 
 # Keep runtime directories
@@ -27,4 +28,5 @@ data/logs/*.log
 !data/outputs/previews/.gitkeep
 !data/outputs/checkpoints/.gitkeep
 !data/outputs/state/.gitkeep
+!data/outputs/cognition/.gitkeep
 !data/logs/.gitkeep

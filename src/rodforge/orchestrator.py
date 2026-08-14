@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .checkpointing import CheckpointManager
+from .cognition import CognitiveEngine, Hypothesis
 from .critic import Critic
 from .part_graph import PartGraph
 from .repair_engine import RepairEngine
@@ -22,12 +23,14 @@ class RunSummary:
 class Orchestrator:
     def __init__(self, state_manager: StateManager, checkpoint_manager: CheckpointManager,
                  executor, critic: Critic | None = None, repair_engine: RepairEngine | None = None,
+                 cognitive_engine: CognitiveEngine | None = None,
                  checkpoint_every: int = 2, max_global_failures: int = 20):
         self.state_manager = state_manager
         self.checkpoint_manager = checkpoint_manager
         self.executor = executor
         self.critic = critic or Critic()
         self.repair_engine = repair_engine or RepairEngine()
+        self.cognitive_engine = cognitive_engine
         self.checkpoint_every = max(1, checkpoint_every)
         self.max_global_failures = max_global_failures
 
@@ -61,10 +64,25 @@ class Orchestrator:
             state.active_task_id = task.task_id
             task.status = TaskStatus.RUNNING
             task.attempts += 1
+
+            hypothesis: Hypothesis | None = None
+            if self.cognitive_engine is not None:
+                hypothesis = self.cognitive_engine.imagine(task)
+                self.cognitive_engine.apply(task, hypothesis)
+
             self.state_manager.save(state)
 
             result = self.executor.execute(task)
             verdict = self.critic.review(task, result.to_dict())
+
+            if self.cognitive_engine is not None and hypothesis is not None:
+                self.cognitive_engine.learn(
+                    project_name=state.project_name,
+                    task=task,
+                    accepted=verdict.accepted,
+                    metrics=verdict.metrics,
+                    hypothesis=hypothesis,
+                )
 
             if verdict.accepted:
                 task.status = TaskStatus.COMPLETED

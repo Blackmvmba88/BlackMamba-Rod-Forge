@@ -6,6 +6,22 @@ outputs:
   state: data/outputs/state/project_state.json
   checkpoints: data/outputs/checkpoints
 
+cognition:
+  enabled: true
+  mode: shadow
+  memory_file: data/outputs/cognition/experience.json
+  min_samples: 3
+  activation_confidence: 0.70
+  activation_margin: 0.05
+
+visual_feedback:
+  enabled: true
+  preview_dir: data/outputs/previews
+  render_every_task: true
+  preview_resolution: 256
+  normalized_size: 128
+  background_distance: 42.0
+
 checkpoint_every_completed_tasks: 2
 max_global_failures_before_pause: 20
 continue_until_blocked: true
