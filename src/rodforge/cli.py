@@ -10,6 +10,7 @@ from .cognition import CognitiveEngine, ExperienceMemory
 from .cognitive_report import build_cognitive_report
 from .config import ProjectConfig, load_config
 from .critic import Critic
+from .curriculum import run_curriculum
 from .orchestrator import Orchestrator
 from .reference_inspector import inspect_reference
 from .state_manager import StateManager
@@ -41,6 +42,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Validate and fingerprint the configured visual reference",
     )
     reference.add_argument("--config", default="configs/project.yaml")
+
+    curriculum = sub.add_parser(
+        "curriculum-run",
+        help="Run a sequence of references against one shared cognitive memory",
+    )
+    curriculum.add_argument("--config", default="configs/project.yaml")
+    curriculum.add_argument("--manifest", required=True)
+    curriculum.add_argument("--executor", choices=["dry-run", "blender"], default="dry-run")
 
     return parser
 
@@ -113,6 +122,20 @@ def main(argv: list[str] | None = None) -> int:
         report = inspect_reference(config.reference_image)
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ready"] else 2
+
+    if args.command == "curriculum-run":
+        report = run_curriculum(
+            config,
+            args.manifest,
+            executor_kind=args.executor,
+        )
+        print(json.dumps(report, indent=2, sort_keys=True))
+        complete = (
+            report["runs_completed"] == report["runs_total"]
+            and report["runs_blocked"] == 0
+            and report["runs_error"] == 0
+        )
+        return 0 if complete else 2
 
     reference_report = inspect_reference(config.reference_image)
     reference_sha256 = (
