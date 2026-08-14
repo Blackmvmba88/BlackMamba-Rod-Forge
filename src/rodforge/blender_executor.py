@@ -148,10 +148,12 @@ class BlenderExecutor:
 
     @staticmethod
     def _scene_bounds(meshes: list[Any]) -> tuple[tuple[float, float, float], float]:
+        from mathutils import Vector  # type: ignore
+
         points: list[tuple[float, float, float]] = []
         for obj in meshes:
             for corner in obj.bound_box:
-                world = obj.matrix_world @ obj.location.__class__(corner)
+                world = obj.matrix_world @ Vector(corner)
                 points.append((float(world.x), float(world.y), float(world.z)))
 
         min_x = min(point[0] for point in points)
@@ -205,11 +207,15 @@ class BlenderExecutor:
 
     @staticmethod
     def _prefer_eevee(scene: Any) -> None:
-        engines = {item.identifier for item in scene.bl_rna.properties["render_engine"].enum_items}
+        render = scene.render
+        try:
+            engines = {item.identifier for item in render.bl_rna.properties["engine"].enum_items}
+        except Exception:
+            engines = set()
         if "BLENDER_EEVEE_NEXT" in engines:
-            scene.render.engine = "BLENDER_EEVEE_NEXT"
+            render.engine = "BLENDER_EEVEE_NEXT"
         elif "BLENDER_EEVEE" in engines:
-            scene.render.engine = "BLENDER_EEVEE"
+            render.engine = "BLENDER_EEVEE"
 
     @staticmethod
     def _representative_mesh(bpy: Any) -> Any:
