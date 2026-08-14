@@ -11,6 +11,7 @@ from .cognitive_report import build_cognitive_report
 from .config import ProjectConfig, load_config
 from .critic import Critic
 from .orchestrator import Orchestrator
+from .reference_inspector import inspect_reference
 from .state_manager import StateManager
 from .task_planner import build_hotrod_plan
 from .visual_feedback import VisualComparator
@@ -34,6 +35,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report.add_argument("--config", default="configs/project.yaml")
     report.add_argument("--window", type=int, default=10)
+
+    reference = sub.add_parser(
+        "reference-check",
+        help="Validate and fingerprint the configured visual reference",
+    )
+    reference.add_argument("--config", default="configs/project.yaml")
 
     return parser
 
@@ -96,6 +103,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0
+
+    if args.command == "reference-check":
+        report = inspect_reference(config.reference_image)
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if report["ready"] else 2
 
     state_manager = StateManager(config.state_file)
     checkpoint_manager = CheckpointManager(config.checkpoint_dir)
