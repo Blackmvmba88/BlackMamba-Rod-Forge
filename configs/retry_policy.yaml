@@ -1,0 +1,9 @@
+default_max_attempts: 3
+critical_max_attempts: 5
+fallback_order:
+  - retry_same
+  - split_task
+  - simplify_geometry
+  - alternate_method
+  - rebuild_from_checkpoint
+stop_only_on_unresolved_critical_blocker: true
