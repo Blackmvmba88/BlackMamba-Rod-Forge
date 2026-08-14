@@ -24,14 +24,20 @@ def build_cognitive_report(
     predictions = [episode for episode in episodes if episode.predicted_score is not None]
 
     source_counts = Counter(episode.source for episode in episodes)
+    source_groups: dict[str, list[ExperienceEpisode]] = defaultdict(list)
     metric_groups: dict[str, list[ExperienceEpisode]] = defaultdict(list)
     strategy_groups: dict[str, list[ExperienceEpisode]] = defaultdict(list)
     for episode in episodes:
+        source_groups[episode.source].append(episode)
         metric_groups[episode.metric].append(episode)
         strategy_groups[episode.strategy].append(episode)
 
     overall = _prediction_stats(predictions)
-    trend = _trend(predictions, window=max(1, int(window)), tolerance=max(0.0, float(trend_tolerance)))
+    trend = _trend(
+        predictions,
+        window=max(1, int(window)),
+        tolerance=max(0.0, float(trend_tolerance)),
+    )
 
     return {
         "episodes_total": len(episodes),
@@ -39,6 +45,10 @@ def build_cognitive_report(
         "predictions_total": len(predictions),
         "prediction_accuracy": overall,
         "learning_trend": trend,
+        "by_source": {
+            name: _group_stats(group)
+            for name, group in sorted(source_groups.items())
+        },
         "by_metric": {
             name: _group_stats(group)
             for name, group in sorted(metric_groups.items())
