@@ -7,7 +7,7 @@ from .cognition import CognitiveEngine, Hypothesis
 from .critic import Critic
 from .part_graph import PartGraph
 from .repair_engine import RepairEngine
-from .schemas import ProjectState, TaskStatus
+from .schemas import ProjectState, Task, TaskStatus
 from .state_manager import StateManager
 
 
@@ -68,6 +68,8 @@ class Orchestrator:
             hypothesis: Hypothesis | None = None
             if self.cognitive_engine is not None:
                 hypothesis = self.cognitive_engine.imagine(task)
+                self._run_counterfactual_probes(state, task, hypothesis)
+                hypothesis = self.cognitive_engine.imagine(task)
                 self.cognitive_engine.apply(task, hypothesis)
 
             self.state_manager.save(state)
@@ -111,3 +113,67 @@ class Orchestrator:
             global_failures=state.global_failures,
             done=state.done,
         )
+
+    def _run_counterfactual_probes(
+        self,
+        state: ProjectState,
+        task: Task,
+        hypothesis: Hypothesis,
+    ) -> None:
+        if self.cognitive_engine is None or not self.critic.counterfactual_feedback_available:
+            return
+
+        probe = getattr(self.executor, "probe", None)
+        if not callable(probe):
+            return
+
+        strategies = self.cognitive_engine.probe_candidates(hypothesis)
+        if not strategies:
+            return
+
+        cognition = task.metadata.setdefault("cognition", {})
+        probe_errors = cognition.setdefault("probe_errors", [])
+
+        for strategy in strategies:
+            try:
+                probe_result = probe(task, strategy)
+            except Exception as exc:
+                probe_errors.append({"strategy": strategy, "error": str(exc)})
+                continue
+
+            if not probe_result.success:
+                probe_errors.append({
+                    "strategy": strategy,
+                    "error": probe_result.error or "counterfactual probe failed",
+                })
+                continue
+
+            preview_path = probe_result.evidence.get("preview_path")
+            if not preview_path:
+                probe_errors.append({"strategy": strategy, "error": "probe produced no preview"})
+                continue
+
+            try:
+                metrics = self.critic.observe_preview(
+                    preview_path,
+                    baseline_reference_match=self.critic.previous_reference_match,
+                )
+            except Exception as exc:
+                probe_errors.append({"strategy": strategy, "error": str(exc)})
+                continue
+
+            episode = self.cognitive_engine.learn_probe(
+                project_name=state.project_name,
+                task=task,
+                strategy=strategy,
+                metrics=metrics,
+                hypothesis=hypothesis,
+            )
+            if episode is None:
+                probe_errors.append({
+                    "strategy": strategy,
+                    "error": f"probe produced no {hypothesis.metric} metric",
+                })
+
+        if not probe_errors:
+            cognition.pop("probe_errors", None)

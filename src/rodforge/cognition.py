@@ -59,13 +59,16 @@ class ExperienceEpisode:
     observed_score: float
     prediction_error: float | None
     accepted: bool
+    source: str = "execution"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ExperienceEpisode":
-        return cls(**data)
+        payload = dict(data)
+        payload.setdefault("source", "execution")
+        return cls(**payload)
 
 
 class ExperienceMemory:
@@ -124,11 +127,14 @@ class ExperienceMemory:
 
 
 class CognitiveEngine:
-    """Imagine -> act -> compare -> learn loop.
+    """Imagine -> probe -> act -> compare -> learn loop.
 
     `shadow` mode learns and writes hypotheses but never changes execution.
     `active` mode may select a historically better candidate only after both a
     confidence threshold and a minimum predicted improvement are satisfied.
+
+    Counterfactual probes are bounded observations of under-explored candidate
+    strategies. They can improve expectations without changing the final scene.
     """
 
     def __init__(
@@ -139,6 +145,9 @@ class CognitiveEngine:
         min_samples: int = 3,
         activation_confidence: float = 0.70,
         activation_margin: float = 0.05,
+        counterfactual_probes: bool = True,
+        max_probes_per_task: int = 1,
+        probe_sample_target: int | None = None,
     ):
         if mode not in {"shadow", "active"}:
             raise ValueError("Cognitive mode must be 'shadow' or 'active'")
@@ -147,6 +156,12 @@ class CognitiveEngine:
         self.min_samples = max(1, int(min_samples))
         self.activation_confidence = self._clamp01(activation_confidence)
         self.activation_margin = max(0.0, float(activation_margin))
+        self.counterfactual_probes = bool(counterfactual_probes)
+        self.max_probes_per_task = max(0, int(max_probes_per_task))
+        self.probe_sample_target = max(
+            1,
+            int(probe_sample_target if probe_sample_target is not None else self.min_samples),
+        )
 
     @staticmethod
     def signature(task: Task) -> str:
@@ -195,6 +210,19 @@ class CognitiveEngine:
             candidates=predictions,
         )
 
+    def probe_candidates(self, hypothesis: Hypothesis) -> list[str]:
+        if not self.counterfactual_probes or self.max_probes_per_task <= 0:
+            return []
+
+        underexplored = [
+            candidate
+            for candidate in hypothesis.candidates
+            if candidate.strategy != hypothesis.current_strategy
+            and candidate.samples < self.probe_sample_target
+        ]
+        underexplored.sort(key=lambda item: (item.samples, item.confidence, item.expected_score))
+        return [candidate.strategy for candidate in underexplored[: self.max_probes_per_task]]
+
     def apply(self, task: Task, hypothesis: Hypothesis) -> str:
         original = task.strategy
         selected = hypothesis.recommended_strategy
@@ -239,11 +267,47 @@ class CognitiveEngine:
             observed_score=observed,
             prediction_error=error,
             accepted=accepted,
+            source="execution",
         )
         self.memory.append(episode)
 
         cognition = task.metadata.setdefault("cognition", {})
         cognition["last_episode"] = episode.to_dict()
+        return episode
+
+    def learn_probe(
+        self,
+        *,
+        project_name: str,
+        task: Task,
+        strategy: str,
+        metrics: dict[str, float] | None,
+        hypothesis: Hypothesis,
+    ) -> ExperienceEpisode | None:
+        metrics = metrics or {}
+        metric = hypothesis.metric
+        if metric not in metrics:
+            return None
+
+        observed = self._clamp01(float(metrics[metric]))
+        prediction = hypothesis.prediction_for(strategy)
+        predicted = prediction.expected_score if prediction is not None else None
+        error = observed - predicted if predicted is not None else None
+        episode = ExperienceEpisode(
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            project_name=project_name,
+            task_id=task.task_id,
+            signature=hypothesis.signature,
+            strategy=strategy,
+            metric=metric,
+            predicted_score=predicted,
+            observed_score=observed,
+            prediction_error=error,
+            accepted=True,
+            source="counterfactual_probe",
+        )
+        self.memory.append(episode)
+        task.metadata.setdefault("cognition", {}).setdefault("probes", []).append(episode.to_dict())
         return episode
 
     def _predict(self, signature: str, strategy: str, metric: str) -> CandidatePrediction:

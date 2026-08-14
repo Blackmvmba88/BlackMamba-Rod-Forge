@@ -36,7 +36,12 @@ That matters because a failed construction can now gather experience from a genu
 
 The cognitive engine still starts in `shadow` mode. It may compare historical expectations for the baseline and candidate, but it does not switch purely because one prediction looks better.
 
-When a concrete alternative is actually executed — through repair, explicit training, or future guarded active selection — its observed `improvement_score` is stored under that exact strategy name. Repeated runs can therefore build separate distributions such as:
+A concrete alternative can now gather observed `improvement_score` evidence in two ways:
+
+- real execution through repair/training/guarded selection,
+- a bounded counterfactual probe that builds, renders, scores and discards the candidate before final execution.
+
+Repeated runs can therefore build separate distributions such as:
 
 ```text
 wheel_torus     -> mean improvement 0.61, confidence 0.72
@@ -44,6 +49,8 @@ wheel_cylinder  -> mean improvement 0.47, confidence 0.69
 ```
 
 Only then does "I think torus will work better here" have empirical content.
+
+Counterfactual behavior is specified in `docs/COUNTERFACTUAL_PROBES.md`.
 
 ## Invariant
 
@@ -57,4 +64,4 @@ If two candidates converge to the same builder and parameters, the catalog test 
 
 ## Next step
 
-The next cognitive upgrade is **counterfactual probing**: temporarily build a candidate in an isolated Blender context, render it, score it, discard it, and compare that imagined result with the planned action without contaminating the final scene.
+Expand each strategy family beyond a binary choice and evaluate candidates across multiple canonical camera views so learned preferences do not overfit one projection.

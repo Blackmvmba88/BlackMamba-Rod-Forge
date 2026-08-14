@@ -23,6 +23,10 @@ Task Planner
       ↓
 Cognitive Hypothesis
       ↓
+Counterfactual Probe (opcional)
+      ↓
+Hypothesis refresh
+      ↓
 Executor (Dry Run / Blender)
       ↓
 Preview Observation
@@ -57,6 +61,7 @@ Esta versión instala la columna vertebral del sistema:
 - orquestador autónomo,
 - ejecutor `dry-run`,
 - ejecutor Blender con operaciones mínimas,
+- familias de estrategias geométricas realmente distintas,
 - crítico estructural,
 - memoria episódica persistente,
 - hipótesis y confianza basadas en experiencia,
@@ -64,6 +69,8 @@ Esta versión instala la columna vertebral del sistema:
 - previews Blender por tarea,
 - comparación visual determinista de silueta y proporción,
 - señal `improvement_score` para distinguir mejora, neutralidad o retroceso,
+- probes contrafactuales acotados para alternativas subexploradas,
+- procedencia explícita de experiencia (`execution` / `counterfactual_probe`),
 - motor de reparación y fallbacks,
 - checkpoints,
 - CLI,
@@ -84,24 +91,27 @@ El objetivo del MVP no es fingir que una sola imagen contiene todas las vistas t
 7. **Un bloqueo solo existe cuando ya no queda una estrategia útil**.
 8. **Predicción y observación siempre permanecen separadas**.
 9. **La experiencia puede influir en acción solo después de superar umbrales de evidencia**.
+10. **Una alternativa cognitiva debe producir geometría materialmente distinta**.
+11. **La imaginación operacional puede explorar, pero no contaminar la escena final**.
 
 ## Arquitectura
 
 ```text
 src/rodforge/
-├── schemas.py            # contrato de datos
-├── reference_analyzer.py # descripción estructurada de la referencia
-├── part_graph.py         # dependencias
-├── task_planner.py       # creación de tareas
-├── state_manager.py      # persistencia atómica
-├── checkpointing.py      # snapshots recuperables
-├── blender_executor.py   # dry-run + bpy + previews observables
-├── visual_feedback.py    # silueta / proporción / referencia
-├── cognition.py          # hipótesis / memoria / confianza / prediction error
-├── critic.py             # validación estructural + métricas visuales
-├── repair_engine.py      # reintento / fallback
-├── orchestrator.py       # loop autónomo
-└── cli.py                # entrada de usuario
+├── schemas.py              # contrato de datos
+├── reference_analyzer.py   # descripción estructurada de la referencia
+├── part_graph.py           # dependencias
+├── task_planner.py         # creación de tareas + candidatos
+├── geometry_strategies.py  # familias de construcción realmente distintas
+├── state_manager.py        # persistencia atómica
+├── checkpointing.py        # snapshots recuperables
+├── blender_executor.py     # dry-run + bpy + previews + probes descartables
+├── visual_feedback.py      # silueta / proporción / referencia
+├── cognition.py            # hipótesis / memoria / probes / prediction error
+├── critic.py               # validación estructural + métricas visuales
+├── repair_engine.py        # reintento / fallback
+├── orchestrator.py         # loop autónomo
+└── cli.py                  # entrada de usuario
 
 blender/
 ├── startup.py
@@ -179,12 +189,45 @@ memoria episódica
 
 El sistema inicia en `shadow` mode: aprende y genera expectativas, pero no cambia una estrategia solo porque "cree" que otra será mejor. La activación futura exige suficientes muestras, confianza y margen de mejora.
 
-El siguiente salto no será inventar etiquetas de estrategia. Será implementar **alternativas geométricas realmente distintas** para un mismo objetivo y dejar que la experiencia estime cuál tiene mayor probabilidad de mejorar el resultado antes de ejecutarla.
+## Imaginación operacional: probes contrafactuales
+
+Para estrategias geométricas reales, Rod Forge puede explorar una alternativa subobservada antes de ejecutar la acción final:
+
+```text
+hipótesis
+   ↓
+candidato subexplorado
+   ↓
+construcción temporal en Blender
+   ↓
+render + score
+   ↓
+experiencia source=counterfactual_probe
+   ↓
+eliminar geometría temporal
+   ↓
+refrescar hipótesis
+   ↓
+ejecutar estrategia autoritativa
+```
+
+El probe no guarda el `.blend`, no avanza el baseline visual real y no consume el presupuesto global de fallos. Si falta la referencia configurada, el probe se omite.
+
+La exploración está acotada:
+
+```yaml
+cognition:
+  counterfactual_probes: true
+  max_probes_per_task: 1
+  probe_sample_target: 3
+```
 
 Detalles técnicos:
 
 - `docs/COGNITION.md`
 - `docs/VISUAL_FEEDBACK.md`
+- `docs/GEOMETRY_STRATEGIES.md`
+- `docs/COUNTERFACTUAL_PROBES.md`
 
 ## Estados de tarea
 
@@ -216,7 +259,7 @@ Cada tarea conserva:
 
 ## Estrategias de reparación
 
-Orden por defecto:
+Cuando existe una alternativa geométrica concreta, se prueba antes de los fallbacks genéricos. Después permanecen disponibles rutas como:
 
 ```text
 retry_same
@@ -226,7 +269,7 @@ alternate_method
 rebuild_from_checkpoint
 ```
 
-El motor de reparación no decide a ciegas: registra qué se intentó y evita repetir infinitamente la misma ruta.
+El motor de reparación registra qué se intentó y evita repetir infinitamente la misma ruta.
 
 ## Instalación local
 
@@ -244,7 +287,7 @@ El dry-run prueba **el cerebro del sistema sin abrir Blender**.
 rodforge run --config configs/project.yaml --executor dry-run
 ```
 
-Esto permite validar planner, dependencias, estado, reintentos, checkpoints y memoria cognitiva antes de meter geometría real.
+Esto permite validar planner, dependencias, estado, reintentos, checkpoints y memoria cognitiva antes de meter geometría real. Los probes contrafactuales visuales no se falsifican en dry-run.
 
 ## Blender headless
 
@@ -260,6 +303,8 @@ Con `visual_feedback.render_every_task: true`, cada tarea produce una observaci�
 ```text
 data/outputs/previews/
 ```
+
+Los probes usan nombres separados `probe_*` dentro del mismo directorio de evidencia.
 
 La memoria cognitiva vive en:
 
@@ -299,12 +344,15 @@ El MVP se considera vivo cuando puede:
 8. producir un `.blend` inicial cuando corre dentro de Blender,
 9. observar visualmente estados intermedios,
 10. medir si una operación mejoró o empeoró respecto a la observación anterior,
-11. conservar esa experiencia para futuras ejecuciones.
+11. conservar esa experiencia para futuras ejecuciones,
+12. comparar métodos geométricos materialmente distintos,
+13. explorar candidatos de forma temporal sin convertir el probe en la escena final.
 
 ## Lo que NO hace todavía
 
 - reconstrucción fotogramétrica,
 - inferencia geométrica perfecta desde una sola vista,
+- comparación visual multivista canónica,
 - visión multimodal semántica avanzada,
 - retopología final,
 - UVs de producción,
@@ -341,13 +389,16 @@ Primero se vuelve **confiable el constructor y verificable el aprendizaje**.
 - [x] proportion score
 - [x] reference match
 - [x] improvement score
+- [x] estrategias geométricas alternativas reales
+- [x] probes contrafactuales acotados
+- [x] separación de baseline visual real vs probe
 - [ ] múltiples vistas canónicas
-- [ ] estrategias geométricas alternativas reales para aprendizaje comparativo
 
 ### Fase 4 — Forma
 - [ ] comparación de silueta multivista
 - [ ] proporciones parametrizadas
 - [ ] biblioteca de piezas
+- [ ] más de dos estrategias por familia
 
 ### Fase 5 — Estilo
 - [ ] toon shading
@@ -366,4 +417,4 @@ Primero se vuelve **confiable el constructor y verificable el aprendizaje**.
 
 **BlackMamba Rod Forge** no se detiene porque aparezca un problema. Se detiene únicamente cuando el problema ya no tiene una ruta viable de resolución.
 
-Y cuando imagina que algo mejorará, no se cree a sí mismo: **lo renderiza, lo mide y aprende del resultado.**
+Y cuando imagina que algo mejorará, no se cree a sí mismo: **lo prueba sin comprometer la escena, lo renderiza, lo mide y aprende del resultado.**

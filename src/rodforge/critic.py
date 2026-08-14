@@ -33,6 +33,22 @@ class Critic:
         self.visual_comparator = visual_comparator
         self._previous_reference_match: float | None = None
 
+    @property
+    def previous_reference_match(self) -> float | None:
+        return self._previous_reference_match
+
+    @property
+    def visual_feedback_available(self) -> bool:
+        return self.visual_comparator is not None and self.reference_image is not None
+
+    @property
+    def counterfactual_feedback_available(self) -> bool:
+        return (
+            self.visual_feedback_available
+            and self.reference_image is not None
+            and self.reference_image.exists()
+        )
+
     def review(self, task: Task, result: dict[str, Any]) -> CriticResult:
         if not result.get("success", False):
             return CriticResult(
@@ -74,41 +90,67 @@ class Critic:
             reason += f"; visual feedback unavailable: {visual_error}"
         return CriticResult(True, reason, metrics)
 
+    def observe_preview(
+        self,
+        preview_path: str | Path,
+        *,
+        baseline_reference_match: float | None = None,
+    ) -> dict[str, float]:
+        """Score a temporary preview without mutating the critic's real baseline."""
+        if not self.visual_feedback_available:
+            return {}
+
+        visual_scores = self.visual_comparator.compare(self.reference_image, preview_path)
+        metrics = {
+            str(name): self._clamp01(float(value))
+            for name, value in visual_scores.items()
+        }
+        current_match = metrics.get("reference_match")
+        if current_match is not None:
+            baseline = 0.0 if baseline_reference_match is None else self._clamp01(baseline_reference_match)
+            delta = current_match - baseline
+            metrics["improvement_score"] = self._clamp01(0.5 + (delta / 2.0))
+        return metrics
+
     def _review_visual(self, evidence: dict[str, Any], metrics: dict[str, float]) -> str | None:
-        if self.visual_comparator is None or self.reference_image is None:
+        if not self.visual_feedback_available:
             return None
 
         preview_path = evidence.get("preview_path")
         if not preview_path:
             return None
 
+        previous_match = self._previous_reference_match
         try:
-            visual_scores = self.visual_comparator.compare(self.reference_image, preview_path)
+            visual_metrics = self.observe_preview(
+                preview_path,
+                baseline_reference_match=previous_match,
+            )
         except Exception as exc:
             error = str(exc)
             evidence["visual_feedback_error"] = error
             return error
 
-        for name, value in visual_scores.items():
-            metrics[str(name)] = self._clamp01(float(value))
-
+        metrics.update(visual_metrics)
         current_match = metrics.get("reference_match")
         if current_match is not None:
-            previous_match = self._previous_reference_match
             baseline = 0.0 if previous_match is None else previous_match
             delta = current_match - baseline
-            metrics["improvement_score"] = self._clamp01(0.5 + (delta / 2.0))
             evidence["visual_feedback"] = {
                 "previous_reference_match": previous_match,
                 "reference_match": current_match,
                 "reference_delta": delta,
-                "improvement_score": metrics["improvement_score"],
+                "improvement_score": metrics.get("improvement_score"),
             }
             self._previous_reference_match = current_match
 
-        evidence.setdefault("scores", {}).update(visual_scores)
-        if "improvement_score" in metrics:
-            evidence["scores"]["improvement_score"] = metrics["improvement_score"]
+        evidence.setdefault("scores", {}).update(
+            {
+                name: value
+                for name, value in metrics.items()
+                if name in {"quality_score", "silhouette_score", "proportion_score", "reference_match", "improvement_score"}
+            }
+        )
         return None
 
     def _copy_numeric_evidence(self, evidence: dict[str, Any], metrics: dict[str, float]) -> None:
