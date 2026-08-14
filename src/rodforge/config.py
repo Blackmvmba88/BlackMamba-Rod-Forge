@@ -17,6 +17,8 @@ class CognitionConfig:
     counterfactual_probes: bool = True
     max_probes_per_task: int = 1
     probe_sample_target: int = 3
+    min_transfer_references: int = 3
+    max_transfer_spread: float = 0.10
 
 
 @dataclass(slots=True)
@@ -57,6 +59,8 @@ def load_config(path: str | Path) -> ProjectConfig:
         counterfactual_probes=bool(cognition_data.get("counterfactual_probes", True)),
         max_probes_per_task=int(cognition_data.get("max_probes_per_task", 1)),
         probe_sample_target=int(cognition_data.get("probe_sample_target", cognition_data.get("min_samples", 3))),
+        min_transfer_references=int(cognition_data.get("min_transfer_references", 3)),
+        max_transfer_spread=float(cognition_data.get("max_transfer_spread", 0.10)),
     )
 
     visual_data = data.get("visual_feedback", {})

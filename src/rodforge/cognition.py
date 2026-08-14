@@ -19,6 +19,10 @@ class CandidatePrediction:
     confidence: float
     samples: int
     scope: str
+    transfer_references: int = 0
+    transfer_spread: float | None = None
+    promotion_ready: bool = True
+    promotion_reason: str = "direct_or_local_evidence"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -76,13 +80,8 @@ class ExperienceEpisode:
 class ExperienceMemory:
     """Persistent episodic memory shared across Rod Forge runs.
 
-    The store intentionally keeps raw episodes instead of prematurely turning
-    them into permanent rules. Predictions are rebuilt from observed history,
-    which lets new evidence correct old expectations.
-
-    Episodes may be bound to an exact visual reference fingerprint. Legacy
-    episodes without a fingerprint remain readable and can still contribute to
-    lower-confidence transfer predictions.
+    Raw episodes remain authoritative. Predictions are rebuilt from observed
+    history so later evidence can correct earlier expectations.
     """
 
     VERSION = 1
@@ -142,20 +141,41 @@ class ExperienceMemory:
             )
         ]
 
+    def reference_profile(
+        self,
+        *,
+        signature: str,
+        strategy: str,
+        metric: str,
+    ) -> dict[str, float]:
+        """Return per-reference mean scores for comparable bound episodes."""
+        grouped: dict[str, list[float]] = {}
+        for episode in self.episodes:
+            if (
+                episode.reference_sha256 is None
+                or episode.signature != signature
+                or episode.strategy != strategy
+                or episode.metric != metric
+            ):
+                continue
+            grouped.setdefault(episode.reference_sha256, []).append(episode.observed_score)
+        return {
+            reference: sum(values) / len(values)
+            for reference, values in grouped.items()
+        }
+
 
 class CognitiveEngine:
     """Imagine -> probe -> act -> compare -> learn loop.
 
-    `shadow` mode learns and writes hypotheses but never changes execution.
-    `active` mode may select a historically better candidate only after both a
-    confidence threshold and a minimum predicted improvement are satisfied.
+    `shadow` mode never changes execution. `active` mode is guarded twice:
+    ordinary evidence thresholds must pass, and cross-reference transfer must
+    also prove repeatability across multiple distinct references.
 
-    Counterfactual probes are bounded observations of under-explored candidate
-    strategies. They can improve expectations without changing the final scene.
-
-    When an exact reference fingerprint is available, predictions first consult
-    episodes from that same visual input. Cross-reference experience is still
-    usable, but only through lower-confidence transfer scopes.
+    Exact-reference evidence can activate through the ordinary thresholds.
+    Signature-level transfer requires replication and low cross-reference
+    spread. Broad strategy-only transfer is informative but never directly
+    eligible to change an authoritative action.
     """
 
     def __init__(
@@ -170,6 +190,8 @@ class CognitiveEngine:
         max_probes_per_task: int = 1,
         probe_sample_target: int | None = None,
         reference_sha256: str | None = None,
+        min_transfer_references: int = 3,
+        max_transfer_spread: float = 0.10,
     ):
         if mode not in {"shadow", "active"}:
             raise ValueError("Cognitive mode must be 'shadow' or 'active'")
@@ -185,6 +207,8 @@ class CognitiveEngine:
             int(probe_sample_target if probe_sample_target is not None else self.min_samples),
         )
         self.reference_sha256 = str(reference_sha256) if reference_sha256 else None
+        self.min_transfer_references = max(2, int(min_transfer_references))
+        self.max_transfer_spread = self._clamp01(max_transfer_spread)
 
     @staticmethod
     def signature(task: Task) -> str:
@@ -221,6 +245,7 @@ class CognitiveEngine:
             and best.samples >= self.min_samples
             and best.confidence >= self.activation_confidence
             and best.expected_score - current.expected_score >= self.activation_margin
+            and best.promotion_ready
         ):
             recommended = best.strategy
 
@@ -352,17 +377,52 @@ class CognitiveEngine:
                     confidence=self._confidence(reference_exact, scope_weight=1.0),
                     samples=len(reference_exact),
                     scope="reference_signature",
+                    transfer_references=1,
+                    transfer_spread=0.0,
+                    promotion_ready=True,
+                    promotion_reason="observed_on_current_reference",
                 )
 
         exact = self.memory.scores(signature=signature, strategy=strategy, metric=metric)
         if exact:
             transfer = self.reference_sha256 is not None
+            if transfer:
+                profile = self.memory.reference_profile(
+                    signature=signature,
+                    strategy=strategy,
+                    metric=metric,
+                )
+                references = len(profile)
+                spread = self._spread(list(profile.values()))
+                ready = (
+                    references >= self.min_transfer_references
+                    and spread is not None
+                    and spread <= self.max_transfer_spread
+                )
+                if references < self.min_transfer_references:
+                    reason = "insufficient_distinct_references"
+                elif spread is None or spread > self.max_transfer_spread:
+                    reason = "cross_reference_results_unstable"
+                else:
+                    reason = "replicated_across_references"
+                return CandidatePrediction(
+                    strategy=strategy,
+                    expected_score=sum(exact) / len(exact),
+                    confidence=self._confidence(exact, scope_weight=0.75),
+                    samples=len(exact),
+                    scope="signature_transfer",
+                    transfer_references=references,
+                    transfer_spread=spread,
+                    promotion_ready=ready,
+                    promotion_reason=reason,
+                )
+
             return CandidatePrediction(
                 strategy=strategy,
                 expected_score=sum(exact) / len(exact),
-                confidence=self._confidence(exact, scope_weight=0.75 if transfer else 1.0),
+                confidence=self._confidence(exact, scope_weight=1.0),
                 samples=len(exact),
-                scope="signature_transfer" if transfer else "signature",
+                scope="signature",
             )
 
         general = self.memory.scores(signature=None, strategy=strategy, metric=metric)
@@ -374,6 +434,12 @@ class CognitiveEngine:
                 confidence=self._confidence(general, scope_weight=0.45 if transfer else 0.55),
                 samples=len(general),
                 scope="strategy_transfer" if transfer else "strategy",
+                promotion_ready=not transfer,
+                promotion_reason=(
+                    "strategy_only_transfer_never_activates"
+                    if transfer
+                    else "local_strategy_history"
+                ),
             )
 
         return CandidatePrediction(
@@ -382,6 +448,8 @@ class CognitiveEngine:
             confidence=0.0,
             samples=0,
             scope="prior",
+            promotion_ready=False,
+            promotion_reason="no_observed_evidence",
         )
 
     def _confidence(self, scores: list[float], *, scope_weight: float) -> float:
@@ -394,6 +462,10 @@ class CognitiveEngine:
             variance = sum((score - mean) ** 2 for score in scores) / n
             stability = 1.0 - min(1.0, math.sqrt(variance))
         return self._clamp01(sample_confidence * stability * scope_weight)
+
+    @staticmethod
+    def _spread(values: list[float]) -> float | None:
+        return max(values) - min(values) if values else None
 
     @staticmethod
     def _clamp01(value: float) -> float:
