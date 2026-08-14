@@ -39,8 +39,12 @@ class Critic:
 
     @property
     def visual_feedback_available(self) -> bool:
+        return self.visual_comparator is not None and self.reference_image is not None
+
+    @property
+    def counterfactual_feedback_available(self) -> bool:
         return (
-            self.visual_comparator is not None
+            self.visual_feedback_available
             and self.reference_image is not None
             and self.reference_image.exists()
         )
@@ -109,7 +113,7 @@ class Critic:
         return metrics
 
     def _review_visual(self, evidence: dict[str, Any], metrics: dict[str, float]) -> str | None:
-        if self.visual_comparator is None or self.reference_image is None:
+        if not self.visual_feedback_available:
             return None
 
         preview_path = evidence.get("preview_path")
