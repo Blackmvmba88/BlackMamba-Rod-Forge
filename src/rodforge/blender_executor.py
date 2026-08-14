@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -70,19 +70,7 @@ class BlenderExecutor:
                 self.output_blend.parent.mkdir(parents=True, exist_ok=True)
                 bpy.ops.wm.save_as_mainfile(filepath=str(self.output_blend.resolve()))
 
-            evidence: dict[str, Any] = {
-                "object_exists": obj is not None,
-                "object_name": obj.name if obj is not None else "",
-                "executor": "blender",
-                "strategy": task.strategy,
-            }
-            spec = get_strategy(task.strategy)
-            if spec is not None:
-                evidence["geometry_family"] = spec.family
-                evidence["geometry_builder"] = spec.builder
-                evidence["geometry_intent"] = spec.intent
-            if obj is not None and hasattr(obj, "dimensions"):
-                evidence["dimensions"] = list(obj.dimensions)
+            evidence = self._geometry_evidence(task, obj, executor="blender")
 
             should_render = self.preview_dir is not None and (
                 self.render_every_task or task.strategy == "preview"
@@ -95,6 +83,55 @@ class BlenderExecutor:
             return ExecutionResult(True, evidence)
         except Exception as exc:  # Blender operations must be captured into state, not kill the loop.
             return ExecutionResult(False, {}, str(exc))
+
+    def probe(self, task: Task, strategy: str) -> ExecutionResult:
+        """Build, render and discard a candidate strategy without saving the scene.
+
+        A probe intentionally reuses the task identity so its geometry occupies
+        exactly the same logical slot as the planned action. Task-owned objects
+        are removed before and after the probe; the real execution rebuilds its
+        selected strategy afterward.
+        """
+        if self.preview_dir is None:
+            return ExecutionResult(False, {}, "Counterfactual probing requires a preview directory")
+
+        bpy = None
+        try:
+            bpy = self._bpy()
+            probe_task = replace(task, strategy=str(strategy))
+            self._clear_task_objects(bpy, probe_task.task_id)
+            obj = self._execute_geometry(bpy, probe_task)
+            evidence = self._geometry_evidence(probe_task, obj, executor="blender-probe")
+
+            safe_strategy = self._safe_filename_component(strategy)
+            preview_name = f"probe_{probe_task.task_id}_{safe_strategy}_{probe_task.attempts:02d}.png"
+            preview_path = self._render_observation(bpy, probe_task, filename=preview_name)
+            evidence["preview_path"] = str(preview_path)
+            evidence["preview_resolution"] = self.preview_resolution
+            evidence["counterfactual"] = True
+            return ExecutionResult(True, evidence)
+        except Exception as exc:
+            return ExecutionResult(False, {}, str(exc))
+        finally:
+            if bpy is not None:
+                self._clear_task_objects(bpy, task.task_id)
+
+    @staticmethod
+    def _geometry_evidence(task: Task, obj: Any, *, executor: str) -> dict[str, Any]:
+        evidence: dict[str, Any] = {
+            "object_exists": obj is not None,
+            "object_name": obj.name if obj is not None else "",
+            "executor": executor,
+            "strategy": task.strategy,
+        }
+        spec = get_strategy(task.strategy)
+        if spec is not None:
+            evidence["geometry_family"] = spec.family
+            evidence["geometry_builder"] = spec.builder
+            evidence["geometry_intent"] = spec.intent
+        if obj is not None and hasattr(obj, "dimensions"):
+            evidence["dimensions"] = list(obj.dimensions)
+        return evidence
 
     def _execute_geometry(self, bpy: Any, task: Task) -> Any:
         spec = get_strategy(task.strategy)
@@ -276,7 +313,7 @@ class BlenderExecutor:
             if obj.name == prefix or obj.name.startswith(f"{prefix}__"):
                 bpy.data.objects.remove(obj, do_unlink=True)
 
-    def _render_observation(self, bpy: Any, task: Task) -> Path:
+    def _render_observation(self, bpy: Any, task: Task, *, filename: str | None = None) -> Path:
         if self.preview_dir is None:
             raise RuntimeError("Preview directory is not configured")
 
@@ -301,10 +338,15 @@ class BlenderExecutor:
 
         self._prefer_eevee(scene)
 
-        preview_path = self.preview_dir / f"{task.task_id}_{task.attempts:02d}.png"
+        output_name = filename or f"{task.task_id}_{task.attempts:02d}.png"
+        preview_path = self.preview_dir / output_name
         render.filepath = str(preview_path.resolve())
         bpy.ops.render.render(write_still=True)
         return preview_path
+
+    @staticmethod
+    def _safe_filename_component(value: str) -> str:
+        return "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in str(value))
 
     @staticmethod
     def _scene_bounds(meshes: list[Any]) -> tuple[tuple[float, float, float], float]:
