@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .geometry_strategies import GeometryStrategy, get_strategy
 from .schemas import Task
 
 
@@ -21,15 +23,17 @@ class DryRunExecutor:
     """Exercises orchestration without requiring Blender."""
 
     def execute(self, task: Task) -> ExecutionResult:
-        return ExecutionResult(
-            success=True,
-            evidence={
-                "object_exists": True,
-                "object_name": f"RF_{task.task_id}",
-                "executor": "dry-run",
-                "strategy": task.strategy,
-            },
-        )
+        spec = get_strategy(task.strategy)
+        evidence: dict[str, Any] = {
+            "object_exists": True,
+            "object_name": f"RF_{task.task_id}",
+            "executor": "dry-run",
+            "strategy": task.strategy,
+        }
+        if spec is not None:
+            evidence["geometry_family"] = spec.family
+            evidence["geometry_builder"] = spec.builder
+        return ExecutionResult(success=True, evidence=evidence)
 
 
 class BlenderExecutor:
@@ -59,6 +63,7 @@ class BlenderExecutor:
     def execute(self, task: Task) -> ExecutionResult:
         try:
             bpy = self._bpy()
+            self._clear_task_objects(bpy, task.task_id)
             obj = self._execute_geometry(bpy, task)
 
             if self.output_blend:
@@ -71,6 +76,11 @@ class BlenderExecutor:
                 "executor": "blender",
                 "strategy": task.strategy,
             }
+            spec = get_strategy(task.strategy)
+            if spec is not None:
+                evidence["geometry_family"] = spec.family
+                evidence["geometry_builder"] = spec.builder
+                evidence["geometry_intent"] = spec.intent
             if obj is not None and hasattr(obj, "dimensions"):
                 evidence["dimensions"] = list(obj.dimensions)
 
@@ -87,15 +97,17 @@ class BlenderExecutor:
             return ExecutionResult(False, {}, str(exc))
 
     def _execute_geometry(self, bpy: Any, task: Task) -> Any:
+        spec = get_strategy(task.strategy)
+        if spec is not None:
+            return self._execute_strategy_spec(bpy, task, spec)
+
         name = f"RF_{task.task_id}"
 
         if task.strategy == "preview":
             return self._representative_mesh(bpy)
 
         if task.strategy in {"primitive_blockout", "retry_same", "simplify_geometry", "alternate_method"}:
-            bpy.ops.mesh.primitive_cube_add(size=2.0)
-            obj = bpy.context.active_object
-            obj.name = name
+            obj = self._add_box(bpy, name, (0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
             self._shape_for_task(obj, task.task_id)
             return obj
 
@@ -108,13 +120,161 @@ class BlenderExecutor:
             "split_task",
             "rebuild_from_checkpoint",
         }:
-            bpy.ops.mesh.primitive_cube_add(size=1.0)
-            obj = bpy.context.active_object
-            obj.name = name
+            obj = self._add_box(bpy, name, (0.0, 0.0, 0.0), (0.5, 0.5, 0.5))
             self._shape_for_task(obj, task.task_id)
             return obj
 
         raise ValueError(f"Unknown strategy: {task.strategy}")
+
+    def _execute_strategy_spec(self, bpy: Any, task: Task, spec: GeometryStrategy) -> Any:
+        name = f"RF_{task.task_id}"
+        params = spec.params
+
+        if spec.builder == "single_box":
+            return self._add_box(
+                bpy,
+                name,
+                tuple(params["location"]),
+                tuple(params["scale"]),
+            )
+        if spec.builder == "rail_frame":
+            return self._build_rail_frame(bpy, name, params)
+        if spec.builder == "stacked_cabin":
+            return self._build_stacked_cabin(bpy, name, params)
+        if spec.builder == "torus_pair":
+            return self._build_wheel_pair(bpy, task.task_id, name, params, torus=True)
+        if spec.builder == "cylinder_pair":
+            return self._build_wheel_pair(bpy, task.task_id, name, params, torus=False)
+        if spec.builder == "tapered_prism":
+            return self._build_tapered_prism(bpy, name, params)
+
+        raise ValueError(f"Unsupported geometry builder: {spec.builder}")
+
+    @staticmethod
+    def _add_box(
+        bpy: Any,
+        name: str,
+        location: tuple[float, float, float],
+        scale: tuple[float, float, float],
+    ) -> Any:
+        bpy.ops.mesh.primitive_cube_add(size=2.0, location=location)
+        obj = bpy.context.active_object
+        obj.name = name
+        obj.scale = scale
+        return obj
+
+    def _build_rail_frame(self, bpy: Any, name: str, params: dict[str, Any]) -> Any:
+        rail_scale = tuple(params["rail_scale"])
+        rail_offset = float(params["rail_offset"])
+        z = float(params["z"])
+        first = self._add_box(bpy, name, (0.0, -rail_offset, z), rail_scale)
+        self._add_box(bpy, f"{name}__rail_R", (0.0, rail_offset, z), rail_scale)
+
+        cross_scale = tuple(params["crossmember_scale"])
+        for index, x in enumerate(params["crossmember_x"], start=1):
+            self._add_box(bpy, f"{name}__cross_{index}", (float(x), 0.0, z), cross_scale)
+        return first
+
+    def _build_stacked_cabin(self, bpy: Any, name: str, params: dict[str, Any]) -> Any:
+        lower = self._add_box(
+            bpy,
+            name,
+            tuple(params["lower_location"]),
+            tuple(params["lower_scale"]),
+        )
+        self._add_box(
+            bpy,
+            f"{name}__roof",
+            tuple(params["roof_location"]),
+            tuple(params["roof_scale"]),
+        )
+        return lower
+
+    def _build_wheel_pair(
+        self,
+        bpy: Any,
+        task_id: str,
+        name: str,
+        params: dict[str, Any],
+        *,
+        torus: bool,
+    ) -> Any:
+        if task_id == "rear_wheels":
+            x, z, y = 1.82, 0.90, 1.75
+            outer_radius, width = 0.92, 0.58
+        else:
+            x, z, y = -1.88, 0.76, 1.72
+            outer_radius, width = 0.68, 0.46
+
+        created: list[Any] = []
+        for index, side_y in enumerate((-y, y)):
+            object_name = name if index == 0 else f"{name}__R"
+            if torus:
+                minor_radius = width * 0.40
+                major_radius = max(0.05, outer_radius - minor_radius)
+                bpy.ops.mesh.primitive_torus_add(
+                    major_segments=int(params.get("segments", 32)),
+                    minor_segments=int(params.get("minor_segments", 12)),
+                    major_radius=major_radius,
+                    minor_radius=minor_radius,
+                    location=(x, side_y, z),
+                    rotation=(math.pi / 2.0, 0.0, 0.0),
+                )
+            else:
+                bpy.ops.mesh.primitive_cylinder_add(
+                    vertices=int(params.get("vertices", 32)),
+                    radius=outer_radius,
+                    depth=width,
+                    location=(x, side_y, z),
+                    rotation=(math.pi / 2.0, 0.0, 0.0),
+                )
+            obj = bpy.context.active_object
+            obj.name = object_name
+            created.append(obj)
+        return created[0]
+
+    @staticmethod
+    def _build_tapered_prism(bpy: Any, name: str, params: dict[str, Any]) -> Any:
+        cx, cy, cz = (float(value) for value in params["center"])
+        half_length = float(params["half_length"])
+        rear_width = float(params["rear_half_width"])
+        front_width = float(params["front_half_width"])
+        bottom = cz + float(params["bottom_z"])
+        top = cz + float(params["top_z"])
+        front_x = cx - half_length
+        rear_x = cx + half_length
+
+        vertices = [
+            (front_x, cy - front_width, bottom),
+            (front_x, cy + front_width, bottom),
+            (front_x, cy - front_width, top),
+            (front_x, cy + front_width, top),
+            (rear_x, cy - rear_width, bottom),
+            (rear_x, cy + rear_width, bottom),
+            (rear_x, cy - rear_width, top),
+            (rear_x, cy + rear_width, top),
+        ]
+        faces = [
+            (0, 4, 5, 1),
+            (2, 3, 7, 6),
+            (0, 2, 6, 4),
+            (1, 5, 7, 3),
+            (0, 1, 3, 2),
+            (4, 6, 7, 5),
+        ]
+        mesh = bpy.data.meshes.new(f"{name}_mesh")
+        mesh.from_pydata(vertices, [], faces)
+        mesh.update()
+        obj = bpy.data.objects.new(name, mesh)
+        bpy.context.scene.collection.objects.link(obj)
+        return obj
+
+    @staticmethod
+    def _clear_task_objects(bpy: Any, task_id: str) -> None:
+        prefix = f"RF_{task_id}"
+        for obj in list(bpy.data.objects):
+            if obj.name == prefix or obj.name.startswith(f"{prefix}__"):
+                bpy.data.objects.remove(obj, do_unlink=True)
 
     def _render_observation(self, bpy: Any, task: Task) -> Path:
         if self.preview_dir is None:
