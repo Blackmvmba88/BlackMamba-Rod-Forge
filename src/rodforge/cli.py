@@ -8,9 +8,11 @@ from .blender_executor import BlenderExecutor, DryRunExecutor
 from .checkpointing import CheckpointManager
 from .cognition import CognitiveEngine, ExperienceMemory
 from .config import ProjectConfig, load_config
+from .critic import Critic
 from .orchestrator import Orchestrator
 from .state_manager import StateManager
 from .task_planner import build_hotrod_plan
+from .visual_feedback import VisualComparator
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -28,10 +30,29 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _executor(kind: str, output_blend: str):
+def _executor(kind: str, config: ProjectConfig):
     if kind == "blender":
-        return BlenderExecutor(output_blend)
+        visual = config.visual_feedback
+        return BlenderExecutor(
+            config.output_blend,
+            preview_dir=visual.preview_dir if visual and visual.enabled else None,
+            render_every_task=bool(visual and visual.enabled and visual.render_every_task),
+            preview_resolution=visual.preview_resolution if visual else 256,
+        )
     return DryRunExecutor()
+
+
+def _critic(config: ProjectConfig) -> Critic:
+    visual = config.visual_feedback
+    if visual is None or not visual.enabled:
+        return Critic()
+    return Critic(
+        reference_image=config.reference_image,
+        visual_comparator=VisualComparator(
+            normalized_size=visual.normalized_size,
+            background_distance=visual.background_distance,
+        ),
+    )
 
 
 def _cognitive_engine(config: ProjectConfig) -> CognitiveEngine | None:
@@ -62,7 +83,8 @@ def main(argv: list[str] | None = None) -> int:
     orchestrator = Orchestrator(
         state_manager=state_manager,
         checkpoint_manager=checkpoint_manager,
-        executor=_executor(args.executor, config.output_blend),
+        executor=_executor(args.executor, config),
+        critic=_critic(config),
         cognitive_engine=_cognitive_engine(config),
         checkpoint_every=config.checkpoint_every_completed_tasks,
         max_global_failures=config.max_global_failures_before_pause,
