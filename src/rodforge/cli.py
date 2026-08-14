@@ -97,6 +97,8 @@ def _cognitive_engine(
         max_probes_per_task=cognition.max_probes_per_task,
         probe_sample_target=cognition.probe_sample_target,
         reference_sha256=reference_sha256,
+        min_transfer_references=cognition.min_transfer_references,
+        max_transfer_spread=cognition.max_transfer_spread,
     )
 
 
