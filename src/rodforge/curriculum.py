@@ -43,12 +43,7 @@ def run_curriculum(
     *,
     executor_kind: str = "dry-run",
 ) -> dict[str, Any]:
-    """Run multiple references sequentially against one shared cognitive memory.
-
-    Each figure gets isolated state/checkpoints/previews/.blend outputs, while
-    cognitive episodes accumulate in the same experience store. This creates a
-    measurable learning sequence instead of unrelated one-off runs.
-    """
+    """Run multiple references sequentially against one shared cognitive memory."""
     if executor_kind not in {"dry-run", "blender"}:
         raise ValueError("executor_kind must be 'dry-run' or 'blender'")
 
@@ -122,7 +117,6 @@ def run_curriculum(
             base_config,
             run_id=run_id,
             reference_image=reference_image,
-            reference_sha256=reference_sha256,
             run_dir=run_dir,
             memory_path=memory_path,
         )
@@ -204,7 +198,6 @@ def _run_config(
     *,
     run_id: str,
     reference_image: str,
-    reference_sha256: str,
     run_dir: Path,
     memory_path: str,
 ) -> ProjectConfig:
@@ -312,6 +305,8 @@ def _cognitive_engine(
         max_probes_per_task=cognition.max_probes_per_task,
         probe_sample_target=cognition.probe_sample_target,
         reference_sha256=reference_sha256,
+        min_transfer_references=cognition.min_transfer_references,
+        max_transfer_spread=cognition.max_transfer_spread,
     )
 
 
