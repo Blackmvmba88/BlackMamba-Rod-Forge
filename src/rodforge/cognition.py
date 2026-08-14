@@ -60,6 +60,7 @@ class ExperienceEpisode:
     prediction_error: float | None
     accepted: bool
     source: str = "execution"
+    reference_sha256: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -68,6 +69,7 @@ class ExperienceEpisode:
     def from_dict(cls, data: dict[str, Any]) -> "ExperienceEpisode":
         payload = dict(data)
         payload.setdefault("source", "execution")
+        payload.setdefault("reference_sha256", None)
         return cls(**payload)
 
 
@@ -77,6 +79,10 @@ class ExperienceMemory:
     The store intentionally keeps raw episodes instead of prematurely turning
     them into permanent rules. Predictions are rebuilt from observed history,
     which lets new evidence correct old expectations.
+
+    Episodes may be bound to an exact visual reference fingerprint. Legacy
+    episodes without a fingerprint remain readable and can still contribute to
+    lower-confidence transfer predictions.
     """
 
     VERSION = 1
@@ -116,13 +122,24 @@ class ExperienceMemory:
             if os.path.exists(temp_name):
                 os.unlink(temp_name)
 
-    def scores(self, *, signature: str | None, strategy: str, metric: str) -> list[float]:
+    def scores(
+        self,
+        *,
+        signature: str | None,
+        strategy: str,
+        metric: str,
+        reference_sha256: str | None = None,
+    ) -> list[float]:
         return [
             episode.observed_score
             for episode in self.episodes
             if episode.strategy == strategy
             and episode.metric == metric
             and (signature is None or episode.signature == signature)
+            and (
+                reference_sha256 is None
+                or episode.reference_sha256 == reference_sha256
+            )
         ]
 
 
@@ -135,6 +152,10 @@ class CognitiveEngine:
 
     Counterfactual probes are bounded observations of under-explored candidate
     strategies. They can improve expectations without changing the final scene.
+
+    When an exact reference fingerprint is available, predictions first consult
+    episodes from that same visual input. Cross-reference experience is still
+    usable, but only through lower-confidence transfer scopes.
     """
 
     def __init__(
@@ -148,6 +169,7 @@ class CognitiveEngine:
         counterfactual_probes: bool = True,
         max_probes_per_task: int = 1,
         probe_sample_target: int | None = None,
+        reference_sha256: str | None = None,
     ):
         if mode not in {"shadow", "active"}:
             raise ValueError("Cognitive mode must be 'shadow' or 'active'")
@@ -162,6 +184,7 @@ class CognitiveEngine:
             1,
             int(probe_sample_target if probe_sample_target is not None else self.min_samples),
         )
+        self.reference_sha256 = str(reference_sha256) if reference_sha256 else None
 
     @staticmethod
     def signature(task: Task) -> str:
@@ -232,6 +255,8 @@ class CognitiveEngine:
         cognition["planned_strategy"] = original
         cognition["selected_strategy"] = selected
         cognition["strategy_changed"] = selected != original
+        if self.reference_sha256 is not None:
+            cognition["reference_sha256"] = self.reference_sha256
         task.strategy = selected
         return selected
 
@@ -268,6 +293,7 @@ class CognitiveEngine:
             prediction_error=error,
             accepted=accepted,
             source="execution",
+            reference_sha256=self.reference_sha256,
         )
         self.memory.append(episode)
 
@@ -305,30 +331,49 @@ class CognitiveEngine:
             prediction_error=error,
             accepted=True,
             source="counterfactual_probe",
+            reference_sha256=self.reference_sha256,
         )
         self.memory.append(episode)
         task.metadata.setdefault("cognition", {}).setdefault("probes", []).append(episode.to_dict())
         return episode
 
     def _predict(self, signature: str, strategy: str, metric: str) -> CandidatePrediction:
+        if self.reference_sha256 is not None:
+            reference_exact = self.memory.scores(
+                signature=signature,
+                strategy=strategy,
+                metric=metric,
+                reference_sha256=self.reference_sha256,
+            )
+            if reference_exact:
+                return CandidatePrediction(
+                    strategy=strategy,
+                    expected_score=sum(reference_exact) / len(reference_exact),
+                    confidence=self._confidence(reference_exact, scope_weight=1.0),
+                    samples=len(reference_exact),
+                    scope="reference_signature",
+                )
+
         exact = self.memory.scores(signature=signature, strategy=strategy, metric=metric)
         if exact:
+            transfer = self.reference_sha256 is not None
             return CandidatePrediction(
                 strategy=strategy,
                 expected_score=sum(exact) / len(exact),
-                confidence=self._confidence(exact, scope_weight=1.0),
+                confidence=self._confidence(exact, scope_weight=0.75 if transfer else 1.0),
                 samples=len(exact),
-                scope="signature",
+                scope="signature_transfer" if transfer else "signature",
             )
 
         general = self.memory.scores(signature=None, strategy=strategy, metric=metric)
         if general:
+            transfer = self.reference_sha256 is not None
             return CandidatePrediction(
                 strategy=strategy,
                 expected_score=sum(general) / len(general),
-                confidence=self._confidence(general, scope_weight=0.55),
+                confidence=self._confidence(general, scope_weight=0.45 if transfer else 0.55),
                 samples=len(general),
-                scope="strategy",
+                scope="strategy_transfer" if transfer else "strategy",
             )
 
         return CandidatePrediction(
