@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blackmamba.local/schemas/task.schema.json",
+  "title": "Rod Forge Task",
+  "type": "object",
+  "required": ["task_id", "name", "objective", "status", "attempts", "max_attempts"],
+  "properties": {
+    "task_id": {"type": "string", "minLength": 1},
+    "name": {"type": "string", "minLength": 1},
+    "objective": {"type": "string", "minLength": 1},
+    "dependencies": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "strategy": {"type": "string"},
+    "success_criteria": {"type": "object"},
+    "fallback_strategies": {"type": "array", "items": {"type": "string"}},
+    "criticality": {"enum": ["low", "normal", "high", "critical"]},
+    "status": {"enum": ["pending", "ready", "running", "completed", "failed", "needs_repair", "blocked", "skipped"]},
+    "attempts": {"type": "integer", "minimum": 0},
+    "max_attempts": {"type": "integer", "minimum": 1},
+    "evidence": {"type": "object"},
+    "last_error": {"type": ["string", "null"]},
+    "metadata": {"type": "object"}
+  },
+  "additionalProperties": false
+}
