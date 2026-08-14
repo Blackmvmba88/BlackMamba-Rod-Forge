@@ -1,0 +1,17 @@
+stylized_hotrod:
+  silhouette_priority: 1.0
+  mechanical_detail_priority: 0.75
+  symmetry: true
+  exaggeration:
+    rear_wheel_scale: 1.25
+    cabin_height_scale: 0.82
+    grille_height_scale: 1.15
+  materials:
+    body_paint: burnt_orange
+    side_panels: brushed_metal
+    tires: matte_rubber
+    engine: worn_aluminum
+  finish:
+    edge_wear: medium
+    grime: low
+    outline: planned
