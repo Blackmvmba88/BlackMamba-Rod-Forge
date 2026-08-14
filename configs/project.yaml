@@ -1,0 +1,11 @@
+project_name: blackmamba_hotrod
+reference_image: data/references/hotrod_reference.png
+
+outputs:
+  blend: data/outputs/blend/hotrod.blend
+  state: data/outputs/state/project_state.json
+  checkpoints: data/outputs/checkpoints
+
+checkpoint_every_completed_tasks: 2
+max_global_failures_before_pause: 20
+continue_until_blocked: true
