@@ -43,7 +43,12 @@ def run_curriculum(
     *,
     executor_kind: str = "dry-run",
 ) -> dict[str, Any]:
-    """Run multiple references sequentially against one shared cognitive memory."""
+    """Run multiple references sequentially against one shared cognitive memory.
+
+    Besides the final aggregate report, the curriculum captures a cognitive
+    snapshot after every attempted figure. That trajectory is the evidence for
+    whether prediction quality actually improves as experience accumulates.
+    """
     if executor_kind not in {"dry-run", "blender"}:
         raise ValueError("executor_kind must be 'dry-run' or 'blender'")
 
@@ -70,12 +75,24 @@ def run_curriculum(
         raise ValueError("curriculum manifest must contain a non-empty 'runs' list")
 
     results: list[CurriculumRunResult] = []
+    trajectory: list[dict[str, Any]] = [
+        _trajectory_snapshot(
+            shared_memory,
+            step=0,
+            run_id="baseline",
+            status="baseline",
+            episodes_before=len(shared_memory.episodes),
+            window=window,
+        )
+    ]
+
     for index, raw_item in enumerate(items, start=1):
         if not isinstance(raw_item, dict):
             raise ValueError(f"curriculum run #{index} must be a mapping")
         run_id = str(raw_item.get("id", f"figure_{index:03d}"))
         reference_image = str(raw_item.get("reference_image", "")).strip()
         run_dir = output_root / _safe_name(run_id)
+        episodes_before = len(shared_memory.episodes)
 
         if not reference_image:
             result = CurriculumRunResult(
@@ -90,6 +107,16 @@ def run_curriculum(
                 errors=["reference_image is required"],
             )
             results.append(result)
+            trajectory.append(
+                _trajectory_snapshot(
+                    shared_memory,
+                    step=index,
+                    run_id=run_id,
+                    status=result.status,
+                    episodes_before=episodes_before,
+                    window=window,
+                )
+            )
             if not continue_on_error:
                 break
             continue
@@ -108,6 +135,16 @@ def run_curriculum(
                 errors=[str(error) for error in reference_report.get("errors", [])],
             )
             results.append(result)
+            trajectory.append(
+                _trajectory_snapshot(
+                    shared_memory,
+                    step=index,
+                    run_id=run_id,
+                    status=result.status,
+                    episodes_before=episodes_before,
+                    window=window,
+                )
+            )
             if not continue_on_error:
                 break
             continue
@@ -154,15 +191,36 @@ def run_curriculum(
                 errors=[str(exc)],
             )
             results.append(result)
+            trajectory.append(
+                _trajectory_snapshot(
+                    shared_memory,
+                    step=index,
+                    run_id=run_id,
+                    status=result.status,
+                    episodes_before=episodes_before,
+                    window=window,
+                )
+            )
             if not continue_on_error:
                 break
             continue
 
         results.append(result)
+        trajectory.append(
+            _trajectory_snapshot(
+                shared_memory,
+                step=index,
+                run_id=run_id,
+                status=result.status,
+                episodes_before=episodes_before,
+                window=window,
+            )
+        )
         if not result.done and not continue_on_error:
             break
 
     cognition_report = build_cognitive_report(shared_memory, window=window)
+    trajectory_summary = _trajectory_summary(trajectory)
     payload = {
         "name": curriculum_name,
         "executor": executor_kind,
@@ -173,6 +231,8 @@ def run_curriculum(
         "runs_blocked": sum(result.status.startswith("blocked") for result in results),
         "runs_error": sum(result.status == "error" for result in results),
         "runs": [result.to_dict() for result in results],
+        "trajectory": trajectory,
+        "trajectory_summary": trajectory_summary,
         "cognition": cognition_report,
     }
 
@@ -181,8 +241,110 @@ def run_curriculum(
         json.dumps(payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    trajectory_path = output_root / "learning_trajectory.json"
+    trajectory_path.write_text(
+        json.dumps(
+            {
+                "name": curriculum_name,
+                "trajectory": trajectory,
+                "summary": trajectory_summary,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     payload["report_path"] = str(report_path)
+    payload["trajectory_path"] = str(trajectory_path)
     return payload
+
+
+def _trajectory_snapshot(
+    memory: ExperienceMemory,
+    *,
+    step: int,
+    run_id: str,
+    status: str,
+    episodes_before: int,
+    window: int,
+) -> dict[str, Any]:
+    report = build_cognitive_report(memory, window=window)
+    accuracy = report["prediction_accuracy"]
+    references = report["references"]
+    transfer = report["transfer_stability"]
+    return {
+        "step": step,
+        "run_id": run_id,
+        "status": status,
+        "episodes_total": report["episodes_total"],
+        "episodes_added": report["episodes_total"] - episodes_before,
+        "predictions_total": report["predictions_total"],
+        "prediction_mae": accuracy["mae"],
+        "prediction_rmse": accuracy["rmse"],
+        "prediction_skill": accuracy["skill"],
+        "prediction_bias": accuracy["bias"],
+        "direction_accuracy": accuracy["direction_accuracy"],
+        "bound_references": references["unique_bound"],
+        "learning_trend": report["learning_trend"]["status"],
+        "transfer_comparable_groups": transfer["comparable_groups"],
+        "transfer_stable_groups": transfer["stable_groups"],
+        "mean_reference_spread": transfer["mean_reference_spread"],
+    }
+
+
+def _trajectory_summary(trajectory: list[dict[str, Any]]) -> dict[str, Any]:
+    measured = [
+        point for point in trajectory
+        if point.get("prediction_mae") is not None and point.get("step", 0) > 0
+    ]
+    if not measured:
+        return {
+            "status": "insufficient_data",
+            "first_measured_step": None,
+            "last_measured_step": None,
+            "initial_mae": None,
+            "final_mae": None,
+            "mae_improvement": None,
+            "initial_skill": None,
+            "final_skill": None,
+            "skill_improvement": None,
+        }
+
+    first = measured[0]
+    last = measured[-1]
+    initial_mae = float(first["prediction_mae"])
+    final_mae = float(last["prediction_mae"])
+    mae_improvement = initial_mae - final_mae
+    initial_skill = first.get("prediction_skill")
+    final_skill = last.get("prediction_skill")
+    skill_improvement = (
+        float(final_skill) - float(initial_skill)
+        if initial_skill is not None and final_skill is not None
+        else None
+    )
+
+    tolerance = 0.01
+    if len(measured) < 2:
+        status = "insufficient_data"
+    elif mae_improvement > tolerance:
+        status = "improving"
+    elif mae_improvement < -tolerance:
+        status = "regressing"
+    else:
+        status = "stable"
+
+    return {
+        "status": status,
+        "first_measured_step": first["step"],
+        "last_measured_step": last["step"],
+        "initial_mae": initial_mae,
+        "final_mae": final_mae,
+        "mae_improvement": mae_improvement,
+        "initial_skill": initial_skill,
+        "final_skill": final_skill,
+        "skill_improvement": skill_improvement,
+    }
 
 
 def _load_manifest(path: str | Path) -> dict[str, Any]:
