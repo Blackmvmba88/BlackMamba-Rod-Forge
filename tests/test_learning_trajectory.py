@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from rodforge.config import load_config
@@ -109,7 +110,7 @@ def test_trajectory_summary_detects_improving_and_regressing_prediction_error():
     ])
 
     assert improving["status"] == "improving"
-    assert improving["mae_improvement"] == 0.20
-    assert improving["skill_improvement"] == 0.20
+    assert improving["mae_improvement"] == pytest.approx(0.20)
+    assert improving["skill_improvement"] == pytest.approx(0.20)
     assert regressing["status"] == "regressing"
-    assert regressing["mae_improvement"] == -0.15
+    assert regressing["mae_improvement"] == pytest.approx(-0.15)
