@@ -65,6 +65,9 @@ def _cognitive_engine(config: ProjectConfig) -> CognitiveEngine | None:
         min_samples=cognition.min_samples,
         activation_confidence=cognition.activation_confidence,
         activation_margin=cognition.activation_margin,
+        counterfactual_probes=cognition.counterfactual_probes,
+        max_probes_per_task=cognition.max_probes_per_task,
+        probe_sample_target=cognition.probe_sample_target,
     )
 
 
