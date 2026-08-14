@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import asdict
 
 from .blender_executor import BlenderExecutor, DryRunExecutor
 from .checkpointing import CheckpointManager
@@ -52,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
         max_global_failures=config.max_global_failures_before_pause,
     )
     summary = orchestrator.run(state)
-    print(json.dumps(summary.__dict__, indent=2))
+    print(json.dumps(asdict(summary), indent=2))
     return 0 if summary.done else 2
 
 
