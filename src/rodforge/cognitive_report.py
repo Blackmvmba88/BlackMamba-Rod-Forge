@@ -19,6 +19,10 @@ def build_cognitive_report(
     it does not infer quality from sample count alone. A falling prediction
     MAE means the system's expectation is becoming closer to what actually
     happens.
+
+    Reference-aware diagnostics separate exact-input experience from unbound
+    legacy episodes and estimate whether comparable strategies behave
+    consistently across multiple visual references.
     """
     episodes = list(memory.episodes if isinstance(memory, ExperienceMemory) else memory)
     predictions = [episode for episode in episodes if episode.predicted_score is not None]
@@ -27,10 +31,12 @@ def build_cognitive_report(
     source_groups: dict[str, list[ExperienceEpisode]] = defaultdict(list)
     metric_groups: dict[str, list[ExperienceEpisode]] = defaultdict(list)
     strategy_groups: dict[str, list[ExperienceEpisode]] = defaultdict(list)
+    reference_groups: dict[str, list[ExperienceEpisode]] = defaultdict(list)
     for episode in episodes:
         source_groups[episode.source].append(episode)
         metric_groups[episode.metric].append(episode)
         strategy_groups[episode.strategy].append(episode)
+        reference_groups[episode.reference_sha256 or "unbound"].append(episode)
 
     overall = _prediction_stats(predictions)
     trend = _trend(
@@ -38,13 +44,25 @@ def build_cognitive_report(
         window=max(1, int(window)),
         tolerance=max(0.0, float(trend_tolerance)),
     )
+    bound_references = sorted(
+        key for key in reference_groups
+        if key != "unbound"
+    )
 
     return {
         "episodes_total": len(episodes),
         "sources": dict(sorted(source_counts.items())),
+        "references": {
+            "unique_bound": len(bound_references),
+            "bound_episodes": sum(
+                len(reference_groups[key]) for key in bound_references
+            ),
+            "unbound_episodes": len(reference_groups.get("unbound", [])),
+        },
         "predictions_total": len(predictions),
         "prediction_accuracy": overall,
         "learning_trend": trend,
+        "transfer_stability": _transfer_stability(episodes),
         "by_source": {
             name: _group_stats(group)
             for name, group in sorted(source_groups.items())
@@ -56,6 +74,10 @@ def build_cognitive_report(
         "by_strategy": {
             name: _group_stats(group)
             for name, group in sorted(strategy_groups.items())
+        },
+        "by_reference": {
+            name: _group_stats(group)
+            for name, group in sorted(reference_groups.items())
         },
     }
 
@@ -117,6 +139,47 @@ def _direction_accuracy(episodes: list[ExperienceEpisode]) -> tuple[int, int]:
         if (predicted_delta > 0) == (observed_delta > 0):
             hits += 1
     return hits, samples
+
+
+def _transfer_stability(episodes: list[ExperienceEpisode]) -> dict[str, Any]:
+    """Summarize observed cross-reference consistency for comparable actions.
+
+    This is deliberately not called proof of generalization. Low spread across
+    references means the same signature/strategy/metric has behaved similarly
+    on multiple inputs, which is evidence worth tracking before transfer is
+    trusted more aggressively.
+    """
+    grouped: dict[tuple[str, str, str], dict[str, list[float]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    reference_ids = {
+        episode.reference_sha256
+        for episode in episodes
+        if episode.reference_sha256 is not None
+    }
+
+    for episode in episodes:
+        if episode.reference_sha256 is None:
+            continue
+        key = (episode.signature, episode.strategy, episode.metric)
+        grouped[key][episode.reference_sha256].append(episode.observed_score)
+
+    spreads: list[float] = []
+    for per_reference in grouped.values():
+        if len(per_reference) < 2:
+            continue
+        means = [sum(values) / len(values) for values in per_reference.values()]
+        spreads.append(max(means) - min(means))
+
+    stable_threshold = 0.10
+    return {
+        "reference_count": len(reference_ids),
+        "comparable_groups": len(spreads),
+        "stable_groups": sum(spread <= stable_threshold for spread in spreads),
+        "stable_threshold": stable_threshold,
+        "mean_reference_spread": _mean(spreads),
+        "max_reference_spread": max(spreads) if spreads else None,
+    }
 
 
 def _trend(
