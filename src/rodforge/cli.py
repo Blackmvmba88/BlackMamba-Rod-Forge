@@ -6,7 +6,8 @@ from dataclasses import asdict
 
 from .blender_executor import BlenderExecutor, DryRunExecutor
 from .checkpointing import CheckpointManager
-from .config import load_config
+from .cognition import CognitiveEngine, ExperienceMemory
+from .config import ProjectConfig, load_config
 from .orchestrator import Orchestrator
 from .state_manager import StateManager
 from .task_planner import build_hotrod_plan
@@ -33,6 +34,19 @@ def _executor(kind: str, output_blend: str):
     return DryRunExecutor()
 
 
+def _cognitive_engine(config: ProjectConfig) -> CognitiveEngine | None:
+    cognition = config.cognition
+    if cognition is None or not cognition.enabled:
+        return None
+    return CognitiveEngine(
+        ExperienceMemory(cognition.memory_file),
+        mode=cognition.mode,
+        min_samples=cognition.min_samples,
+        activation_confidence=cognition.activation_confidence,
+        activation_margin=cognition.activation_margin,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     config = load_config(args.config)
@@ -49,6 +63,7 @@ def main(argv: list[str] | None = None) -> int:
         state_manager=state_manager,
         checkpoint_manager=checkpoint_manager,
         executor=_executor(args.executor, config.output_blend),
+        cognitive_engine=_cognitive_engine(config),
         checkpoint_every=config.checkpoint_every_completed_tasks,
         max_global_failures=config.max_global_failures_before_pause,
     )
