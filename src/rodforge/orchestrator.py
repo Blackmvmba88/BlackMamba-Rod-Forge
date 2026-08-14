@@ -120,7 +120,7 @@ class Orchestrator:
         task: Task,
         hypothesis: Hypothesis,
     ) -> None:
-        if self.cognitive_engine is None or not self.critic.visual_feedback_available:
+        if self.cognitive_engine is None or not self.critic.counterfactual_feedback_available:
             return
 
         probe = getattr(self.executor, "probe", None)
