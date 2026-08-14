@@ -37,6 +37,14 @@ class Critic:
     def previous_reference_match(self) -> float | None:
         return self._previous_reference_match
 
+    @property
+    def visual_feedback_available(self) -> bool:
+        return (
+            self.visual_comparator is not None
+            and self.reference_image is not None
+            and self.reference_image.exists()
+        )
+
     def review(self, task: Task, result: dict[str, Any]) -> CriticResult:
         if not result.get("success", False):
             return CriticResult(
@@ -85,7 +93,7 @@ class Critic:
         baseline_reference_match: float | None = None,
     ) -> dict[str, float]:
         """Score a temporary preview without mutating the critic's real baseline."""
-        if self.visual_comparator is None or self.reference_image is None:
+        if not self.visual_feedback_available:
             return {}
 
         visual_scores = self.visual_comparator.compare(self.reference_image, preview_path)
