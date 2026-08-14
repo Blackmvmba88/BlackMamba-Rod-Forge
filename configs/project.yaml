@@ -13,6 +13,9 @@ cognition:
   min_samples: 3
   activation_confidence: 0.70
   activation_margin: 0.05
+  counterfactual_probes: true
+  max_probes_per_task: 1
+  probe_sample_target: 3
 
 visual_feedback:
   enabled: true
