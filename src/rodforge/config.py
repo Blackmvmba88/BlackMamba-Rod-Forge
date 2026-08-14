@@ -14,6 +14,9 @@ class CognitionConfig:
     min_samples: int = 3
     activation_confidence: float = 0.70
     activation_margin: float = 0.05
+    counterfactual_probes: bool = True
+    max_probes_per_task: int = 1
+    probe_sample_target: int = 3
 
 
 @dataclass(slots=True)
@@ -51,6 +54,9 @@ def load_config(path: str | Path) -> ProjectConfig:
         min_samples=int(cognition_data.get("min_samples", 3)),
         activation_confidence=float(cognition_data.get("activation_confidence", 0.70)),
         activation_margin=float(cognition_data.get("activation_margin", 0.05)),
+        counterfactual_probes=bool(cognition_data.get("counterfactual_probes", True)),
+        max_probes_per_task=int(cognition_data.get("max_probes_per_task", 1)),
+        probe_sample_target=int(cognition_data.get("probe_sample_target", cognition_data.get("min_samples", 3))),
     )
 
     visual_data = data.get("visual_feedback", {})
