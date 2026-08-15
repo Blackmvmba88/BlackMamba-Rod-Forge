@@ -295,8 +295,10 @@ def _trajectory_snapshot(
 
 def _trajectory_summary(trajectory: list[dict[str, Any]]) -> dict[str, Any]:
     measured = [
-        point for point in trajectory
-        if point.get("prediction_mae") is not None and point.get("step", 0) > 0
+        point
+        for point in trajectory
+        if point.get("prediction_mae") is not None
+        and (point.get("step", 0) == 0 or point.get("episodes_added", 0) > 0)
     ]
     if not measured:
         return {
