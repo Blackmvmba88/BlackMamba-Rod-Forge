@@ -114,3 +114,30 @@ def test_trajectory_summary_detects_improving_and_regressing_prediction_error():
     assert improving["skill_improvement"] == pytest.approx(0.20)
     assert regressing["status"] == "regressing"
     assert regressing["mae_improvement"] == pytest.approx(-0.15)
+
+def test_trajectory_summary_uses_measurable_baseline_and_skips_zero_evidence():
+    summary = _trajectory_summary([
+        {
+            "step": 0,
+            "episodes_added": 0,
+            "prediction_mae": 0.30,
+            "prediction_skill": 0.70,
+        },
+        {
+            "step": 1,
+            "episodes_added": 2,
+            "prediction_mae": 0.20,
+            "prediction_skill": 0.80,
+        },
+        {
+            "step": 2,
+            "episodes_added": 0,
+            "prediction_mae": 0.20,
+            "prediction_skill": 0.80,
+        },
+    ])
+
+    assert summary["status"] == "improving"
+    assert summary["first_measured_step"] == 0
+    assert summary["last_measured_step"] == 1
+    assert summary["mae_improvement"] == pytest.approx(0.10)
