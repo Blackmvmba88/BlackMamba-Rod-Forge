@@ -19,3 +19,6 @@ def test_dry_run_completes_entire_plan(tmp_path):
     assert summary.completed == len(state.tasks)
     assert summary.blocked == 0
     assert (tmp_path / "state.json").exists()
+    checkpoints = sorted((tmp_path / "checkpoints").glob("checkpoint_*.json"))
+    assert checkpoints
+    assert state.metadata["final_checkpoint_completed_count"] == len(state.tasks)

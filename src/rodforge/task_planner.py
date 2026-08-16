@@ -23,6 +23,8 @@ def _task(
     strategy: str = "primitive_blockout",
     *,
     part_family: str | None = None,
+    pipeline_stage: str = "details",
+    checkpoint: bool = False,
 ) -> Task:
     candidates = candidates_for_family(part_family, strategy) if part_family else []
     fallbacks = ["retry_same", *candidates]
@@ -31,7 +33,11 @@ def _task(
     metadata = {
         "cognitive_signature": task_id,
         "cognitive_metric": "improvement_score",
+        "pipeline_stage": pipeline_stage,
+        "tutorial_step": task_id,
     }
+    if checkpoint:
+        metadata["checkpoint"] = True
     if part_family:
         metadata["part_family"] = part_family
     if candidates:
@@ -61,6 +67,7 @@ def build_hotrod_plan(project_name: str = "blackmamba_hotrod") -> ProjectState:
             max_attempts=5,
             strategy="chassis_slab",
             part_family="chassis",
+            pipeline_stage="blockout",
         ),
         _task(
             "cabin_blockout",
@@ -71,6 +78,7 @@ def build_hotrod_plan(project_name: str = "blackmamba_hotrod") -> ProjectState:
             5,
             "cabin_box",
             part_family="cabin",
+            pipeline_stage="blockout",
         ),
         _task(
             "engine_volume",
@@ -79,6 +87,7 @@ def build_hotrod_plan(project_name: str = "blackmamba_hotrod") -> ProjectState:
             ["chassis_blockout"],
             Criticality.HIGH,
             4,
+            pipeline_stage="blockout",
         ),
         _task(
             "front_wheels",
@@ -88,6 +97,7 @@ def build_hotrod_plan(project_name: str = "blackmamba_hotrod") -> ProjectState:
             Criticality.HIGH,
             strategy="wheel_torus",
             part_family="wheel",
+            pipeline_stage="blockout",
         ),
         _task(
             "rear_wheels",
@@ -97,6 +107,8 @@ def build_hotrod_plan(project_name: str = "blackmamba_hotrod") -> ProjectState:
             Criticality.HIGH,
             strategy="wheel_torus",
             part_family="wheel",
+            pipeline_stage="blockout",
+            checkpoint=True,
         ),
         _task(
             "body_shell",
@@ -107,6 +119,18 @@ def build_hotrod_plan(project_name: str = "blackmamba_hotrod") -> ProjectState:
             5,
             "body_box",
             part_family="body",
+            pipeline_stage="chassis_body",
+        ),
+        _task(
+            "front_axle",
+            "Simplified front axle",
+            "Add a readable front beam, steering link and simple suspension.",
+            ["chassis_blockout", "front_wheels"],
+            Criticality.HIGH,
+            4,
+            "mechanical_detail",
+            pipeline_stage="chassis_body",
+            checkpoint=True,
         ),
         _task(
             "front_grille",
@@ -114,6 +138,7 @@ def build_hotrod_plan(project_name: str = "blackmamba_hotrod") -> ProjectState:
             "Construct tall vertical grille and support.",
             ["engine_volume", "front_wheels"],
             strategy="front_assembly",
+            pipeline_stage="chassis_body",
         ),
         _task(
             "headlights",
@@ -121,6 +146,7 @@ def build_hotrod_plan(project_name: str = "blackmamba_hotrod") -> ProjectState:
             "Create symmetric round headlights.",
             ["front_grille"],
             strategy="front_assembly",
+            pipeline_stage="chassis_body",
         ),
         _task(
             "engine_block",
@@ -130,6 +156,7 @@ def build_hotrod_plan(project_name: str = "blackmamba_hotrod") -> ProjectState:
             Criticality.HIGH,
             4,
             "engine_detail",
+            pipeline_stage="engine",
         ),
         _task(
             "blower",
@@ -137,6 +164,7 @@ def build_hotrod_plan(project_name: str = "blackmamba_hotrod") -> ProjectState:
             "Create supercharger and intake scoop.",
             ["engine_block"],
             strategy="engine_detail",
+            pipeline_stage="engine",
         ),
         _task(
             "exhaust",
@@ -144,13 +172,44 @@ def build_hotrod_plan(project_name: str = "blackmamba_hotrod") -> ProjectState:
             "Create exposed exhaust/header forms.",
             ["engine_block"],
             strategy="engine_detail",
+            pipeline_stage="engine",
+        ),
+        _task(
+            "simple_transmission",
+            "Simplified transmission",
+            "Add a family-friendly gearbox mass behind and below the engine.",
+            ["engine_block", "chassis_blockout"],
+            strategy="mechanical_detail",
+            pipeline_stage="engine",
+            checkpoint=True,
+        ),
+        _task(
+            "wheel_mechanics",
+            "Wheel mechanical pass",
+            "Add readable rims, hubs, brakes and a simple tire pattern.",
+            ["front_axle", "front_wheels", "rear_wheels"],
+            Criticality.HIGH,
+            4,
+            "mechanical_detail",
+            pipeline_stage="wheels",
+            checkpoint=True,
+        ),
+        _task(
+            "simple_driveline",
+            "Simplified driveline",
+            "Connect transmission to a basic rear differential with a visible driveshaft.",
+            ["simple_transmission", "rear_wheels"],
+            strategy="mechanical_detail",
+            pipeline_stage="details",
         ),
         _task(
             "secondary_details",
             "Secondary details",
             "Add mirrors, handles, trim and mechanical accents.",
-            ["body_shell", "headlights", "blower", "exhaust"],
+            ["body_shell", "headlights", "blower", "exhaust", "wheel_mechanics", "simple_driveline"],
             strategy="detail_pass",
+            pipeline_stage="details",
+            checkpoint=True,
         ),
         _task(
             "materials",
@@ -158,6 +217,7 @@ def build_hotrod_plan(project_name: str = "blackmamba_hotrod") -> ProjectState:
             "Assign orange paint, exposed metal and tire materials.",
             ["secondary_details"],
             strategy="materials",
+            pipeline_stage="details",
         ),
         _task(
             "preview",
@@ -165,6 +225,15 @@ def build_hotrod_plan(project_name: str = "blackmamba_hotrod") -> ProjectState:
             "Produce evidence render of the assembled vehicle.",
             ["materials"],
             strategy="preview",
+            pipeline_stage="details",
+            checkpoint=True,
         ),
     ]
-    return ProjectState(project_name=project_name, tasks={task.task_id: task for task in tasks})
+    return ProjectState(
+        project_name=project_name,
+        tasks={task.task_id: task for task in tasks},
+        metadata={
+            "pipeline_stages": ["blockout", "chassis_body", "engine", "wheels", "details"],
+            "tutorial_capture": True,
+        },
+    )

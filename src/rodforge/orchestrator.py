@@ -92,7 +92,9 @@ class Orchestrator:
                 task.last_error = None
                 state.completed_order.append(task.task_id)
                 state.active_task_id = None
-                if len(state.completed_order) % self.checkpoint_every == 0:
+                interval_checkpoint = len(state.completed_order) % self.checkpoint_every == 0
+                milestone_checkpoint = bool(task.metadata.get("checkpoint"))
+                if interval_checkpoint or milestone_checkpoint:
                     self.checkpoint_manager.save(state)
                 self.state_manager.save(state)
                 continue
@@ -105,6 +107,11 @@ class Orchestrator:
             state.active_task_id = None
             self.state_manager.save(state)
 
+        if state.done and state.completed_order:
+            final_count = state.metadata.get("final_checkpoint_completed_count")
+            if final_count != len(state.completed_order):
+                self.checkpoint_manager.save(state)
+                state.metadata["final_checkpoint_completed_count"] = len(state.completed_order)
         self.state_manager.save(state)
         return RunSummary(
             completed=sum(task.status == TaskStatus.COMPLETED for task in state.tasks.values()),

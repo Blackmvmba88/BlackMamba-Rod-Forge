@@ -154,6 +154,7 @@ class BlenderExecutor:
             "engine_detail",
             "detail_pass",
             "materials",
+            "mechanical_detail",
             "split_task",
             "rebuild_from_checkpoint",
         }:
