@@ -90,6 +90,34 @@ STRATEGIES: dict[str, GeometryStrategy] = {
         },
         intent="Tapered body envelope that narrows toward the engine/front assembly.",
     ),
+    "front_axle_basic": GeometryStrategy(
+        name="front_axle_basic",
+        family="front_axle",
+        builder="front_axle_assembly",
+        params={"x": -1.88, "half_width": 1.72, "z": 0.76},
+        intent="Readable beam axle, steering tie rod and kingpins without engineering-level detail.",
+    ),
+    "transmission_basic": GeometryStrategy(
+        name="transmission_basic",
+        family="transmission",
+        builder="transmission_assembly",
+        params={"location": (-0.35, 0.0, 0.82)},
+        intent="Simple bell housing and gearbox mass behind the exposed engine.",
+    ),
+    "wheel_mechanics_basic": GeometryStrategy(
+        name="wheel_mechanics_basic",
+        family="wheel_mechanics",
+        builder="wheel_detail_pass",
+        params={"front_x": -1.88, "rear_x": 1.82, "front_z": 0.76, "rear_z": 0.90},
+        intent="Large hubs and brake discs that read clearly at tutorial scale.",
+    ),
+    "driveline_basic": GeometryStrategy(
+        name="driveline_basic",
+        family="driveline",
+        builder="driveline_assembly",
+        params={"transmission_x": 0.15, "rear_axle_x": 1.82, "z": 0.68},
+        intent="Visible driveshaft and simple rear differential connecting the major masses.",
+    ),
 }
 
 
