@@ -5,7 +5,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from .schemas import ProjectState
+from .schemas import ProjectState, TaskStatus
 
 
 class StateManager:
@@ -22,7 +22,25 @@ class StateManager:
         if not self.path.exists():
             raise FileNotFoundError(self.path)
         with self.path.open("r", encoding="utf-8") as handle:
-            return ProjectState.from_dict(json.load(handle))
+            state = ProjectState.from_dict(json.load(handle))
+
+        interrupted = [
+            task for task in state.tasks.values()
+            if task.status == TaskStatus.RUNNING
+        ]
+        for task in interrupted:
+            task.status = TaskStatus.NEEDS_REPAIR
+            task.last_error = "interrupted before execution verdict"
+            task.metadata.setdefault("recovery_events", []).append({
+                "reason": "interrupted_running_task",
+                "attempt": task.attempts,
+            })
+        if interrupted:
+            state.active_task_id = None
+            state.blocked_reason = None
+            state.done = False
+            self.save(state)
+        return state
 
     def save(self, state: ProjectState) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

@@ -154,6 +154,7 @@ class BlenderExecutor:
             "engine_detail",
             "detail_pass",
             "materials",
+            "mechanical_detail",
             "split_task",
             "rebuild_from_checkpoint",
         }:
@@ -184,6 +185,14 @@ class BlenderExecutor:
             return self._build_wheel_pair(bpy, task.task_id, name, params, torus=False)
         if spec.builder == "tapered_prism":
             return self._build_tapered_prism(bpy, name, params)
+        if spec.builder == "front_axle_assembly":
+            return self._build_front_axle(bpy, name, params)
+        if spec.builder == "transmission_assembly":
+            return self._build_transmission(bpy, name, params)
+        if spec.builder == "wheel_detail_pass":
+            return self._build_wheel_details(bpy, name, params)
+        if spec.builder == "driveline_assembly":
+            return self._build_driveline(bpy, name, params)
 
         raise ValueError(f"Unsupported geometry builder: {spec.builder}")
 
@@ -198,6 +207,28 @@ class BlenderExecutor:
         obj = bpy.context.active_object
         obj.name = name
         obj.scale = scale
+        return obj
+
+    @staticmethod
+    def _add_cylinder(
+        bpy: Any,
+        name: str,
+        location: tuple[float, float, float],
+        radius: float,
+        depth: float,
+        rotation: tuple[float, float, float],
+        *,
+        vertices: int = 32,
+    ) -> Any:
+        bpy.ops.mesh.primitive_cylinder_add(
+            vertices=vertices,
+            radius=radius,
+            depth=depth,
+            location=location,
+            rotation=rotation,
+        )
+        obj = bpy.context.active_object
+        obj.name = name
         return obj
 
     def _build_rail_frame(self, bpy: Any, name: str, params: dict[str, Any]) -> Any:
@@ -305,6 +336,78 @@ class BlenderExecutor:
         obj = bpy.data.objects.new(name, mesh)
         bpy.context.scene.collection.objects.link(obj)
         return obj
+
+    def _build_front_axle(self, bpy: Any, name: str, params: dict[str, Any]) -> Any:
+        x = float(params["x"])
+        half_width = float(params["half_width"])
+        z = float(params["z"])
+        beam = self._add_cylinder(
+            bpy, name, (x, 0.0, z), 0.12, half_width * 2.0,
+            (math.pi / 2.0, 0.0, 0.0),
+        )
+        self._add_cylinder(
+            bpy, f"{name}__tie_rod", (x + 0.22, 0.0, z + 0.16), 0.05,
+            half_width * 1.82, (math.pi / 2.0, 0.0, 0.0), vertices=20,
+        )
+        for side, y in (("L", -half_width), ("R", half_width)):
+            self._add_cylinder(
+                bpy, f"{name}__kingpin_{side}", (x, y, z), 0.09, 0.52,
+                (0.0, 0.0, 0.0), vertices=20,
+            )
+        return beam
+
+    def _build_transmission(self, bpy: Any, name: str, params: dict[str, Any]) -> Any:
+        x, y, z = (float(value) for value in params["location"])
+        bell = self._add_cylinder(
+            bpy, name, (x - 0.42, y, z + 0.10), 0.54, 0.48,
+            (0.0, math.pi / 2.0, 0.0),
+        )
+        gearbox = self._add_box(
+            bpy, f"{name}__gearbox", (x + 0.12, y, z), (0.58, 0.46, 0.38),
+        )
+        self._add_cylinder(
+            bpy, f"{name}__tail", (x + 0.78, y, z), 0.18, 0.76,
+            (0.0, math.pi / 2.0, 0.0), vertices=24,
+        )
+        return bell
+
+    def _build_wheel_details(self, bpy: Any, name: str, params: dict[str, Any]) -> Any:
+        positions = (
+            ("front", float(params["front_x"]), float(params["front_z"]), 1.72, 0.68),
+            ("rear", float(params["rear_x"]), float(params["rear_z"]), 1.75, 0.92),
+        )
+        first = None
+        for axle, x, z, half_width, tire_radius in positions:
+            for side, y in (("L", -half_width), ("R", half_width)):
+                disc = self._add_cylinder(
+                    bpy, f"{name}__{axle}_{side}_disc", (x, y, z),
+                    tire_radius * 0.55, 0.10, (math.pi / 2.0, 0.0, 0.0),
+                )
+                self._add_cylinder(
+                    bpy, f"{name}__{axle}_{side}_hub", (x, y, z),
+                    tire_radius * 0.24, 0.22, (math.pi / 2.0, 0.0, 0.0), vertices=24,
+                )
+                first = first or disc
+        return first
+
+    def _build_driveline(self, bpy: Any, name: str, params: dict[str, Any]) -> Any:
+        start_x = float(params["transmission_x"])
+        rear_x = float(params["rear_axle_x"])
+        z = float(params["z"])
+        length = rear_x - start_x
+        shaft = self._add_cylinder(
+            bpy, name, (start_x + length / 2.0, 0.0, z), 0.08, length,
+            (0.0, math.pi / 2.0, 0.0), vertices=20,
+        )
+        self._add_cylinder(
+            bpy, f"{name}__differential", (rear_x, 0.0, z + 0.08), 0.32, 0.48,
+            (math.pi / 2.0, 0.0, 0.0), vertices=28,
+        )
+        self._add_cylinder(
+            bpy, f"{name}__rear_axle", (rear_x, 0.0, z + 0.08), 0.10, 3.50,
+            (math.pi / 2.0, 0.0, 0.0), vertices=20,
+        )
+        return shaft
 
     @staticmethod
     def _clear_task_objects(bpy: Any, task_id: str) -> None:

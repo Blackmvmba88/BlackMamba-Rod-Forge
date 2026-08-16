@@ -45,3 +45,19 @@ def test_dry_run_reports_strategy_family_and_builder():
     assert result.evidence["strategy"] == "wheel_torus"
     assert result.evidence["geometry_family"] == "wheel"
     assert result.evidence["geometry_builder"] == "torus_pair"
+
+
+def test_mechanical_tasks_use_recognizable_geometry_builders():
+    state = build_hotrod_plan("mechanical_builders")
+    expected = {
+        "front_axle": ("front_axle_basic", "front_axle_assembly"),
+        "simple_transmission": ("transmission_basic", "transmission_assembly"),
+        "wheel_mechanics": ("wheel_mechanics_basic", "wheel_detail_pass"),
+        "simple_driveline": ("driveline_basic", "driveline_assembly"),
+    }
+
+    for task_id, (strategy, builder) in expected.items():
+        task = state.tasks[task_id]
+        result = DryRunExecutor().execute(task)
+        assert task.strategy == strategy
+        assert result.evidence["geometry_builder"] == builder
