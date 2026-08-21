@@ -1,0 +1,165 @@
+schema_version: 1
+spec_id: hotrod_mechanical_v1
+status: conceptual-engineering
+units:
+  length: mm
+  angle: deg
+
+# This file is the authoritative mechanical/design contract for Hot Rod #4.
+# Values marked provisional or target must be validated by suspension analysis,
+# structural FEA, brake sizing, driveline calculations and physical packaging
+# before fabrication.
+
+envelope:
+  length: 2710
+  width: 1710
+  height: 1260
+
+mass_targets:
+  front_percent: 48
+  rear_percent: 52
+  acceptable_front_percent: [47, 49]
+  acceptable_rear_percent: [51, 53]
+  architecture: front-mid-engine_rear-transaxle
+
+front_corner:
+  wheel:
+    tire_outer_diameter: 580
+    tire_width: 200
+    rim_diameter_in: 17
+    bolt_count: 5
+    pcd: 114.3
+    pcd_parametric: true
+    stud: M12x1.5
+    hub_centric: true
+    hub_pilot_diameter: 67.0
+  hub:
+    flange_outer_diameter_range: [145, 155]
+    flange_thickness_range: [12, 15]
+    bearing_strategy: double-row_or_angular-contact
+  brake:
+    rotor_diameter: 330
+    rotor_thickness_range: [28, 30]
+    rotor_type: two-piece_ventilated
+    caliper_pistons: 4
+  suspension:
+    architecture: double-wishbone
+    actuation_preferred: pushrod-rocker
+    coilover_orientation: inboard_horizontal_preferred
+    motion_ratio_target: 0.75
+    static_camber: -0.5
+    caster_target: 7.0
+    caster_range: [6.0, 8.0]
+    toe_in_target: 0.05
+    kpi_target: 9.0
+    kpi_range: [8.0, 10.0]
+    scrub_radius_target: 17.5
+    scrub_radius_range: [10, 25]
+    roll_center_height_target: 70
+    roll_center_height_range: [50, 90]
+    fine_track_adjust_per_side: 10
+    coarse_track_modules_per_side: [-25, 0, 25]
+  steering:
+    type: rack-and-pinion
+    ackermann: true
+    bump_steer_target: minimized
+
+rear_corner:
+  wheel:
+    tire_outer_diameter: 680
+    tire_width: 320
+    rim_diameter_in: 20
+    construction: three-piece_deep-dish
+    bolt_count: 5
+    pcd: 114.3
+    pcd_parametric: true
+    alternate_pcd_candidate: 120.0
+    stud: M14x1.5
+    hub_centric: true
+    hub_pilot_diameter: 72.6
+  hub:
+    flange_outer_diameter_range: [160, 175]
+    flange_thickness_range: [14, 18]
+    bearing_strategy: integrated-large_or_double-angular
+  brake:
+    rotor_diameter: 355
+    rotor_thickness: 28
+    rotor_type: ventilated
+    caliper_pistons: 4
+    parking_brake: independent_secondary_caliper_or_mechanical
+  suspension:
+    architecture: independent_double-wishbone
+    toe_link: adjustable
+    actuation_preferred: pushrod-rocker
+    coilover_orientation: inboard_horizontal_preferred
+    static_camber_target: -1.25
+    static_camber_range: [-1.5, -1.0]
+    toe_in_target_per_side: 0.15
+    toe_in_range_per_side: [0.10, 0.20]
+    anti_squat_target_percent: 30
+    anti_squat_range_percent: [20, 40]
+    roll_center_height_target: 95
+    roll_center_relation: higher-than-front
+    track_width_policy: slightly-wider-than-front
+
+powertrain:
+  engine:
+    layout: longitudinal-front-mid
+    type: V8
+    induction: supercharged
+    blower_intakes: 3
+    packaging_rule: engine-mass-as-far-rearward-as-practical
+  driveline:
+    architecture: torque-tube_or_driveshaft-to-rear-transaxle
+    rear_transaxle: true
+    differential: LSD
+    lsd_candidates: [clutch-type, helical]
+    final_drive_target: 3.73
+    final_drive_candidates: [3.55, 3.73, 3.91]
+    half_shafts: independent-CV
+
+chassis:
+  type: hybrid-spaceframe
+  front_module: removable
+  rear_subframe: removable
+  triangulated_suspension_pickups: true
+  central_tunnel_for_driveline: true
+  body_is_nonstructural_by_default: true
+
+body_and_stance:
+  style: chopped-1930s-pickup-hot-rod
+  paint: burnt-orange_and_aged-silver
+  exposed_mechanics: true
+  front_tire_vs_rear_tire: rear-larger-and-wider
+  silhouette_priority: low-roof_long-engine-muscular-rear
+
+telemetry:
+  front:
+    - suspension_travel
+    - steering_angle
+    - brake_temperature
+    - bearing_temperature
+    - wheel_speed
+  rear:
+    - suspension_travel
+    - brake_temperature
+    - bearing_temperature
+    - wheel_speed
+  vehicle:
+    - accelerometer
+    - estimated_wheel_load
+    - dynamic_camber_estimate
+    - slip_estimate
+
+validation_required_before_fabrication:
+  - suspension_kinematics_and_bump_steer
+  - wheel_and_caliper_clearance
+  - hub_and_bearing_loads
+  - brake_torque_and_thermal_capacity
+  - driveline_torque_and_CV_angles
+  - chassis_FEA_and_pickup_load_cases
+  - roll_center_and_weight_transfer
+  - steering_effort_and_ackermann
+  - tire_load_rating
+  - fastener_grade_and_joint_design
+  - crash_and_roadworthiness_requirements
