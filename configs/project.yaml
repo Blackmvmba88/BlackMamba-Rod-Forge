@@ -1,5 +1,6 @@
 project_name: blackmamba_hotrod
 reference_image: data/references/hotrod_reference.png
+mechanical_spec: configs/hotrod_mechanical_v1.yaml
 
 outputs:
   blend: data/outputs/blend/hotrod.blend

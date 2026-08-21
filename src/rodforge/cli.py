@@ -154,6 +154,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         state = build_hotrod_plan(config.project_name)
         state.metadata["reference_image"] = config.reference_image
+        if config.mechanical_spec:
+            state.metadata["mechanical_spec"] = config.mechanical_spec
 
     if reference_sha256 is not None:
         state.metadata["reference_sha256"] = reference_sha256
