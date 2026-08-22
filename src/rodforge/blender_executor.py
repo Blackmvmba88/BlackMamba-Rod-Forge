@@ -140,6 +140,11 @@ class BlenderExecutor:
 
         name = f"RF_{task.task_id}"
 
+        if task.strategy == "mechanical_systems":
+            from .mechanics import build_mechanical_systems
+
+            return build_mechanical_systems(bpy, task.task_id)
+
         if task.strategy == "preview":
             return self._representative_mesh(bpy)
 
