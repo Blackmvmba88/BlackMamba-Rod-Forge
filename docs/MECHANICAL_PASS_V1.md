@@ -1,6 +1,8 @@
 # Mechanical Pass v1
 
-`blender/mechanics/hotrod_mechanics_pass_v1.py` captures the first believable mechanical layer for the BlackMamba hot rod scene.
+`blender/mechanics/hotrod_mechanics_pass_v1.py` preserves the first believable mechanical layer calibrated against the hand-authored BlackMamba hot rod scene.
+
+Rod Forge now also contains a procedural adapter in `src/rodforge/mechanics.py` so the autonomous pipeline can build the same mechanical families from its generated `RF_*` wheel geometry instead of copying source-scene coordinates.
 
 ## What it builds
 
@@ -12,39 +14,72 @@
 - Steering rack and tie rods.
 - Front structural crossmember.
 - Rear solid axle.
-- Rear differential and differential nose.
+- Rear differential.
 - Driveshaft.
 - Rear trailing arms and upper links.
 - Rear coilovers.
 - Rear Panhard bar.
 - Engine-mount crossbar and left/right mounts.
 
-Generated objects are grouped below the `BM_Mechanics_v1` collection so the pass can be removed or rebuilt without deleting the rest of the vehicle.
+## Two mechanical paths
 
-## Design intent
+### 1. Source-scene baseline
 
-This pass is not a full engineering simulation. It establishes a mechanically coherent visual topology so later Rod Forge stages can reason about real component families instead of treating the vehicle as bodywork plus wheels.
+`blender/mechanics/hotrod_mechanics_pass_v1.py`
 
-The current architecture intentionally keeps:
+This path is calibrated against the existing `hotrod.blend` wheel objects and is kept as the visual/mechanical baseline that proved the topology.
 
-1. visible components as separate named Blender objects,
-2. wheel hardware centered from scene wheel references,
-3. left/right suspension pieces separately addressable,
-4. generated mechanics under one disposable root collection,
-5. a non-destructive save path (`*_mechanical_pass.blend`).
+Generated source-scene objects live below the `BM_Mechanics_v1` collection so the pass can be removed or rebuilt without deleting the rest of the vehicle.
 
-## Current scene anchors
+### 2. Autonomous Rod Forge path
 
-The script was calibrated against the existing `hotrod.blend` wheel objects:
+`src/rodforge/mechanics.py`
+
+The procedural path derives its envelope from:
+
+- `RF_front_wheels`,
+- `RF_front_wheels__R`,
+- `RF_rear_wheels`,
+- `RF_rear_wheels__R`.
+
+It calculates:
+
+- front axle X,
+- rear axle X,
+- longitudinal wheelbase,
+- front/rear half-track,
+- centerline Y,
+- front/rear wheel-center Z.
+
+Those dimensions drive suspension, steering, axle, driveshaft and mount hard-points. No `hotrod.blend` coordinates are copied into the autonomous builder.
+
+All autonomous mechanical objects use the `RF_mechanical_systems` task prefix, which makes retries idempotent through the existing executor cleanup logic.
+
+## Task-graph integration
+
+The planner now creates a `mechanical_systems` task after:
+
+- `chassis_blockout`,
+- `engine_volume`,
+- `front_wheels`,
+- `rear_wheels`.
+
+`body_shell` depends on `mechanical_systems`, so the body is refined around an established rolling/mechanical package rather than treating mechanics as decoration added at the end.
+
+The Blender executor dispatches the `mechanical_systems` strategy to `build_mechanical_systems()`.
+
+## Source scene anchors
+
+The baseline script was calibrated against:
 
 - `Torus.002` — front right,
 - `Torus.003` — front left,
 - `Torus.001` — rear left,
 - rear right mirrored from rear left when no explicit reference is present.
 
-Fallback coordinates are embedded so the pass remains runnable when an expected wheel object is missing, but those coordinates are specific to the current source scene.
+Fallback coordinates remain embedded only in the source-scene script.
 
-## Blender usage
+## Source-scene Blender usage
 
 Open the source `.blend`, then run the script from Blender's Scripting workspace.
 
@@ -62,11 +97,15 @@ hotrod_mechanical_pass.blend
 
 ## Idempotence
 
-Before rebuilding, the script removes the previous `BM_Mechanics_v1` collection recursively. Re-running the pass therefore replaces generated mechanics instead of stacking duplicate suspension and drivetrain parts.
+The source-scene script removes the previous `BM_Mechanics_v1` collection before rebuilding.
+
+The autonomous executor already removes every object named `RF_mechanical_systems` or prefixed with `RF_mechanical_systems__` before retrying the task.
+
+Both paths therefore replace their own generated mechanics instead of stacking duplicates.
 
 ## Scene metadata
 
-The pass records:
+Source-scene pass:
 
 ```text
 BM_MECHANICS_PASS = v1
@@ -74,24 +113,40 @@ BM_WHEEL_PATTERN = 5-lug
 BM_MECHANICS_COMPONENTS = 64
 ```
 
-These custom properties give later automation a cheap readiness check before attempting a second mechanical stage.
+Autonomous pass:
 
-## Important boundary
+```text
+RF_MECHANICAL_SYSTEMS = v1-procedural
+RF_WHEEL_PATTERN = 5-lug
+RF_MECHANICAL_COMPONENTS = <generated count>
+RF_WHEELBASE = <derived value>
+```
 
-`v1` is anchored to the hand-authored `hotrod.blend` coordinate convention. Rod Forge's autonomous executor currently creates its own `RF_*` wheel objects in a different procedural coordinate space.
+## Current engineering boundary
 
-The next integration step is therefore **not** to copy these constants into the executor. It is to add a mechanical adapter that derives suspension, steering and drivetrain hard-points from the generated `RF_front_wheels`, `RF_rear_wheels`, chassis bounds and engine volume.
+This remains a mechanically coherent **visual/procedural topology**, not a vehicle-dynamics or structural simulation.
 
-That adapter should make the same mechanical topology reusable across different hot-rod proportions while keeping this script as the verified source-scene baseline.
+The procedural v1 currently derives its main envelope from wheel centers. `chassis_blockout` and `engine_volume` are explicit dependencies so the scene is structurally ready, but their bounds are not yet consumed to solve packaging clearances.
+
+The next mechanical refinement should therefore derive mount/control-arm hard-points from chassis and engine bounds, then add clearance checks and steering/suspension travel validation.
 
 ## Acceptance criteria for v1
 
-- Script can be run repeatedly without duplicating its generated collection.
-- Four hubs exist.
-- Twenty lug objects exist total.
+- Four hubs are generated.
+- Twenty lug objects are generated total.
 - Both front corners have upper/lower control arms and coilovers.
 - Steering rack connects through two tie rods.
 - Rear axle contains a differential and longitudinal driveshaft.
-- Rear suspension contains trailing links, upper links, coilovers and Panhard bar.
+- Rear suspension contains trailing links, upper links, coilovers and a Panhard bar.
 - Engine mounts are represented independently from the engine mesh.
-- The source `.blend` is not overwritten by default behavior.
+- Re-running either path does not duplicate its generated mechanics.
+- Autonomous mechanics are derived from `RF_*` wheel geometry, not source-scene constants.
+- Planner enforces mechanics before `body_shell`.
+
+## Validation still required
+
+- Run the branch in Blender 5.x against a clean Rod Forge execution.
+- Inspect left/right orientation and wheel-plane alignment.
+- Verify control arms do not visibly cross the wheel/tire envelope.
+- Verify driveshaft and engine mounts remain inside the chassis package.
+- Capture a real `.blend` and preview artifact as evidence.
