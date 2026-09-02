@@ -38,6 +38,7 @@ class ProjectConfig:
     output_blend: str
     state_file: str
     checkpoint_dir: str
+    vehicle_geometry_file: str | None = None
     checkpoint_every_completed_tasks: int = 2
     max_global_failures_before_pause: int = 20
     cognition: CognitionConfig | None = None
@@ -73,12 +74,15 @@ def load_config(path: str | Path) -> ProjectConfig:
         background_distance=float(visual_data.get("background_distance", 42.0)),
     )
 
+    geometry_file = data.get("vehicle_geometry_file")
+
     return ProjectConfig(
         project_name=data.get("project_name", "blackmamba_hotrod"),
         reference_image=data.get("reference_image", "data/references/hotrod_reference.png"),
         output_blend=outputs.get("blend", "data/outputs/blend/hotrod.blend"),
         state_file=outputs.get("state", "data/outputs/state/project_state.json"),
         checkpoint_dir=outputs.get("checkpoints", "data/outputs/checkpoints"),
+        vehicle_geometry_file=str(geometry_file) if geometry_file else None,
         checkpoint_every_completed_tasks=int(data.get("checkpoint_every_completed_tasks", 2)),
         max_global_failures_before_pause=int(data.get("max_global_failures_before_pause", 20)),
         cognition=cognition,

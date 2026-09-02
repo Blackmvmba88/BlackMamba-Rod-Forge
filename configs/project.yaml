@@ -1,5 +1,6 @@
 project_name: blackmamba_hotrod
 reference_image: data/references/hotrod_reference.png
+vehicle_geometry_file: configs/vehicle_geometry.yaml
 
 outputs:
   blend: data/outputs/blend/hotrod.blend

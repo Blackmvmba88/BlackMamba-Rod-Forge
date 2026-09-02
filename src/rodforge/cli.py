@@ -15,6 +15,7 @@ from .orchestrator import Orchestrator
 from .reference_inspector import inspect_reference
 from .state_manager import StateManager
 from .task_planner import build_hotrod_plan
+from .vehicle_geometry import load_vehicle_geometry
 from .visual_feedback import VisualComparator
 
 
@@ -42,6 +43,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Validate and fingerprint the configured visual reference",
     )
     reference.add_argument("--config", default="configs/project.yaml")
+
+    geometry = sub.add_parser(
+        "geometry-check",
+        help="Validate and summarize the configured vehicle geometry contract",
+    )
+    geometry.add_argument("--config", default="configs/project.yaml")
 
     curriculum = sub.add_parser(
         "curriculum-run",
@@ -125,6 +132,15 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["ready"] else 2
 
+    if args.command == "geometry-check":
+        if not config.vehicle_geometry_file:
+            print(json.dumps({"ready": False, "error": "vehicle_geometry_file is not configured"}, indent=2))
+            return 2
+        geometry = load_vehicle_geometry(config.vehicle_geometry_file)
+        payload = {"ready": True, **geometry.to_metadata()}
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+
     if args.command == "curriculum-run":
         report = run_curriculum(
             config,
@@ -152,8 +168,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "resume":
         state = state_manager.load()
     else:
-        state = build_hotrod_plan(config.project_name)
+        geometry = (
+            load_vehicle_geometry(config.vehicle_geometry_file)
+            if config.vehicle_geometry_file
+            else None
+        )
+        state = build_hotrod_plan(
+            config.project_name,
+            vehicle_geometry=geometry,
+        )
         state.metadata["reference_image"] = config.reference_image
+        if config.vehicle_geometry_file:
+            state.metadata["vehicle_geometry_file"] = config.vehicle_geometry_file
 
     if reference_sha256 is not None:
         state.metadata["reference_sha256"] = reference_sha256

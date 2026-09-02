@@ -1,0 +1,90 @@
+schema_version: 1
+variant: hotrod_04
+units: mm
+status: modeling_prior
+
+vehicle:
+  architecture: 1930s_pickup_hotrod
+  overall:
+    length_mm: 2710
+    width_mm: 1710
+    height_mm: 1260
+  powertrain:
+    layout: front_engine_rear_drive
+    engine: exposed_v8
+    induction: triple_intake_blower
+  wheels:
+    front:
+      outer_diameter_mm: 580
+      tire_width_mm: 200
+      rim_diameter_in: 17
+      lug_count: 5
+    rear:
+      outer_diameter_mm: 680
+      tire_width_mm: 320
+      rim_diameter_in: 20
+      style: deep_dish
+  front_end:
+    suspension: double_wishbone
+    steering: rack_and_pinion
+    ackermann: true
+
+constraints:
+  chassis_blockout:
+    overall_length_mm: 2710
+    overall_width_mm: 1710
+    overall_height_mm: 1260
+
+  front_wheels:
+    outer_diameter_mm: 580
+    tire_width_mm: 200
+    rim_diameter_in: 17
+    lug_count: 5
+
+  rear_wheels:
+    outer_diameter_mm: 680
+    tire_width_mm: 320
+    rim_diameter_in: 20
+    style: deep_dish
+
+  front_hubs_brakes:
+    lug_count: 5
+    wheel_interface: front_wheels
+    symmetry_required: true
+
+  front_suspension:
+    type: double_wishbone
+    scrub_radius_mm:
+      min: 10
+      max: 25
+    roll_center_height_mm:
+      min: 50
+      max: 90
+    symmetry_required: true
+
+  steering:
+    type: rack_and_pinion
+    ackermann: true
+    depends_on_suspension_geometry: true
+
+  rear_axle:
+    driven: true
+    differential_required: true
+    wheel_interface: rear_wheels
+
+  rear_links:
+    locate_rear_axle: true
+    preserve_driveshaft_clearance: true
+
+  engine_mounts:
+    engine: exposed_v8
+    chassis_interface_required: true
+
+  driveshaft:
+    connects: [engine_block, rear_axle]
+    clearance_required: true
+
+notes:
+  - These values are modeling priors for the current stylized hot rod, not manufacturing specifications.
+  - Unknown hard dimensions stay unspecified instead of being invented from a single reference image.
+  - Scrub-radius and roll-center ranges are provisional Rod Forge v2 visual/mechanical targets and remain editable.
